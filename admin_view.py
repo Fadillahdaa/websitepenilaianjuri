@@ -54,46 +54,6 @@ def _show_flash(key):
         (st.success if flash[0] == "success" else st.warning)(flash[1])
 
 
-def _compress_image_to_base64(uploaded_file, max_side=300, max_chars=45000):
-    """Kecilkan & kompres gambar agar base64 < batas 50.000 karakter per sel Google Sheets."""
-    img = Image.open(uploaded_file)
-    img = ImageOps.exif_transpose(img)
-    if img.mode in ("RGBA", "LA", "P"):
-        img = img.convert("RGBA")
-        bg = Image.new("RGB", img.size, (255, 255, 255))
-        bg.paste(img, mask=img.split()[-1])
-        img = bg
-    else:
-        img = img.convert("RGB")
-
-    side, quality = max_side, 80
-    while True:
-        thumb = img.copy()
-        thumb.thumbnail((side, side))
-        buf = io.BytesIO()
-        thumb.save(buf, format="JPEG", quality=quality, optimize=True)
-        b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-        if len(b64) <= max_chars or (side <= 80 and quality <= 40):
-            return f"data:image/jpeg;base64,{b64}"
-        quality = max(40, quality - 10)
-        side = max(80, int(side * 0.85))
-
-
-def _tampilkan_foto(container, foto_data, width=80):
-    foto_data = str(foto_data or "").strip()
-    if not foto_data or foto_data == "-":
-        container.write("-")
-        return
-    try:
-        if foto_data.startswith("data:image"):
-            container.image(base64.b64decode(foto_data.split(",", 1)[1]), width=width)
-        else:
-            container.image(foto_data, width=width)
-    except Exception:
-        container.write("⚠️ Foto rusak")
-
-
-# ============================ POPUP PESERTA ============================
 @_dialog("✏️ Edit Peserta")
 def dialog_edit_peserta(id_peserta, spreadsheet_obj):
     df = st.session_state.db_peserta
@@ -177,40 +137,44 @@ def dialog_hapus_peserta(id_peserta, nama, spreadsheet_obj):
 
 # ============================ HALAMAN ADMIN ============================
 def render_admin_portal():
-    styles.inject()
-    st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
-
-    # Inisialisasi session state login admin
+    # Inisialisasi status login admin di session state
     if "admin_logged_in" not in st.session_state:
         st.session_state.admin_logged_in = False
 
-    # ================= FORM LOGIN ADMIN =================
+    # JIKA BELUM LOGIN: Tampilkan halaman form login admin dan hentikan proses di sini
     if not st.session_state.admin_logged_in:
+        styles.inject(dark_stage=True)
+        st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
+        
         col_1, col_center, col_3 = st.columns([1, 1.2, 1])
         with col_center:
             st.markdown("""
-                <div style="text-align: center; margin-top: 40px; margin-bottom: 20px;">
-                    <div style="font-size: 40px;">🔐</div>
-                    <h3 style="color: #112250; margin: 10px 0 5px 0;">Login Administrator</h3>
-                    <p style="color: #6B7280; font-size: 0.9rem;">Masukkan akun superadmin untuk mengakses panel</p>
-                </div>
+                <div style="background: rgba(255,255,255,0.05); border: 1px solid rgba(231,226,206,0.2); border-radius: 16px; padding: 32px; margin-top: 50px; text-align: center;">
+                    <div style="font-size: 40px; margin-bottom: 10px;">🔐</div>
+                    <h3 style="color: #ffffff; margin: 0 0 5px 0;">Panel Administrator</h3>
+                    <p style="color: #BEB7A7; font-size: 0.9rem; margin-bottom: 25px;">Autentikasi khusus superadmin diperlukan</p>
             """, unsafe_allow_html=True)
 
             with st.form("form_login_admin"):
-                username_input = st.text_input("Username")
+                username_input = st.text_input("Username Administrator")
                 password_input = st.text_input("Password", type="password")
                 btn_login = st.form_submit_button("Masuk Panel ➔", use_container_width=True)
 
                 if btn_login:
                     if username_input == "superadmin" and password_input == "adminsuper*3#12":
                         st.session_state.admin_logged_in = True
-                        st.success("Login berhasil!")
+                        st.success("Login Berhasil! Memuat panel...")
                         st.rerun()
                     else:
                         st.error("Username atau password salah!")
-        return  # Hentikan eksekusi jika belum login
 
-    # ================= PANEL UTAMA ADMIN SETELAH LOGIN =================
+            st.markdown("</div>", unsafe_allow_html=True)
+        return  # Menghentikan eksekusi script selanjutnya agar isi panel admin tidak terlihat
+
+    # ================= JIKA SUDAH LOGIN: TAMPILKAN PANEL UTAMA ADMIN =================
+    styles.inject()
+    st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
+
     spreadsheet_obj, conn_err = db_helper.auto_connect_and_sync()
     tanggal_format = db_helper.get_current_date_indonesia()
 
