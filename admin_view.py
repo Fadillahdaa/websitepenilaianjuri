@@ -44,17 +44,6 @@ _ADMIN_CSS = """
 
 
 # ============================ HELPER ============================
-def _next_id(df, prefix, col):
-    nums = []
-    if not df.empty and col in df.columns:
-        for v in df[col].tolist():
-            if isinstance(v, str) and v.startswith(prefix + "-") and v.split("-")[-1].isdigit():
-                nums.append(int(v.split("-")[-1]))
-            elif str(v).isdigit():
-                nums.append(int(v))
-    return f"{prefix}-{(max(nums) if nums else 0) + 1:03d}"
-
-
 def _exact_cells(ws, value, col):
     return [c for c in ws.findall(str(value), in_column=col) if c.value == str(value)]
 
@@ -131,20 +120,22 @@ def dialog_edit_peserta(id_peserta, spreadsheet_obj):
         idx = df.index[df["id_peserta"] == id_peserta][0]
         st.session_state.db_peserta.at[idx, "nama_peserta"] = nama_baru
 
-        gagal = False
+        gagal, detail = False, ""
         if spreadsheet_obj:
             try:
-                ws = spreadsheet_obj.worksheet("Peserta")
+                ws = db_helper.get_ws(spreadsheet_obj, "peserta")
                 cells = _exact_cells(ws, id_peserta, 1)
                 if cells:
                     ws.update_cell(cells[0].row, 2, nama_baru)
                 else:
-                    gagal = True
-            except Exception:
-                gagal = True
+                    gagal, detail = True, "ID peserta tidak ditemukan di Sheet."
+            except Exception as e:
+                gagal, detail = True, f"{type(e).__name__}: {e}"
+        else:
+            gagal, detail = True, "Koneksi ke Google Sheet tidak tersedia."
 
         st.session_state["flash_peserta"] = (
-            ("warning", "Peserta diperbarui di aplikasi, tetapi gagal menyinkronkan ke Google Sheet.")
+            ("warning", f"Peserta diperbarui di aplikasi, tetapi gagal ke Google Sheet. ({detail})")
             if gagal else ("success", f"Data peserta **{nama_baru}** berhasil diperbarui.")
         )
         st.rerun()
@@ -166,17 +157,19 @@ def dialog_hapus_peserta(id_peserta, nama, spreadsheet_obj):
         df = st.session_state.db_peserta
         st.session_state.db_peserta = df[df["id_peserta"] != id_peserta].reset_index(drop=True)
 
-        gagal = False
+        gagal, detail = False, ""
         if spreadsheet_obj:
             try:
-                ws = spreadsheet_obj.worksheet("Peserta")
+                ws = db_helper.get_ws(spreadsheet_obj, "peserta")
                 for r in sorted({c.row for c in _exact_cells(ws, id_peserta, 1)}, reverse=True):
                     ws.delete_rows(r)
-            except Exception:
-                gagal = True
+            except Exception as e:
+                gagal, detail = True, f"{type(e).__name__}: {e}"
+        else:
+            gagal, detail = True, "Koneksi ke Google Sheet tidak tersedia."
 
         st.session_state["flash_peserta"] = (
-            ("warning", "Peserta dihapus dari aplikasi, tetapi gagal menghapus di Google Sheet.")
+            ("warning", f"Peserta dihapus dari aplikasi, tetapi gagal menghapus di Google Sheet. ({detail})")
             if gagal else ("success", f"Peserta **{nama}** berhasil dihapus.")
         )
         st.rerun()
@@ -204,6 +197,12 @@ def render_admin_portal():
                     🟢 <b>DB Tersambung</b><br>{spreadsheet_obj.title}
                 </div>
             """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+                <div style="margin: 10px 0 16px 0; padding: 10px 12px; background: rgba(220,53,69,0.15); border: 1px solid #dc3545; border-radius: 8px; font-size: 0.75rem; color: #E7E2CE; font-weight: 600; text-align: center;">
+                    🔴 <b>DB Tidak Tersambung</b>
+                </div>
+            """, unsafe_allow_html=True)
 
         menu_admin = styles.sidebar_menu(
             ["📊 Dashboard", "📁 Kelola Peserta", "👥 Kelola Instansi",
@@ -224,6 +223,9 @@ def render_admin_portal():
             </div>
         </div>
     """, unsafe_allow_html=True)
+
+    if conn_err:
+        st.error(f"❌ Google Sheet bermasalah: {conn_err}")
 
     # ---------------- 1. DASHBOARD ----------------
     if menu_admin == "📊 Dashboard":
@@ -297,7 +299,7 @@ def render_admin_portal():
                     elif not df_p.empty and p_nama.strip().lower() in df_p["nama_peserta"].str.lower().tolist():
                         st.error("Peserta dengan nama tersebut sudah terdaftar.")
                     else:
-                        new_id = _next_id(df_p, "PST", "id_peserta")
+                        new_id = db_helper.next_id(df_p, "PST", "id_peserta")
                         new_row = {
                             "id_peserta": new_id,
                             "nama_peserta": p_nama.strip(),
@@ -305,18 +307,12 @@ def render_admin_portal():
                         }
                         st.session_state.db_peserta = pd.concat([df_p, pd.DataFrame([new_row])], ignore_index=True)
 
-                        err_sheet = False
-                        if spreadsheet_obj:
-                            try:
-                                ws = spreadsheet_obj.worksheet("Peserta")
-                                ws.append_row([new_id, p_nama.strip(), "Belum Lengkap"])
-                            except Exception as e:
-                                err_sheet = True
-                                print(f"Gagal append ke sheet Peserta: {e}")
-
+                        ok, serr = db_helper.safe_append(
+                            spreadsheet_obj, "peserta", [new_id, p_nama.strip(), "Belum Lengkap"]
+                        )
                         st.session_state["flash_peserta"] = (
-                            ("warning", f"Peserta **{p_nama.strip()}** tersimpan di aplikasi, tetapi gagal menulis ke Google Sheet.")
-                            if err_sheet else ("success", f"Peserta **{p_nama.strip()}** berhasil ditambahkan!")
+                            ("success", f"Peserta **{p_nama.strip()}** berhasil ditambahkan!") if ok
+                            else ("warning", f"Peserta **{p_nama.strip()}** tersimpan di aplikasi, tetapi gagal menulis ke Google Sheet. ({serr})")
                         )
                         st.rerun()
 
@@ -340,6 +336,7 @@ def render_admin_portal():
                         dialog_edit_peserta(r["id_peserta"], spreadsheet_obj)
                     if c[4].button("🗑️ Hapus", key=f"del_{r['id_peserta']}"):
                         dialog_hapus_peserta(r["id_peserta"], r["nama_peserta"], spreadsheet_obj)
+
     # ---------------- 3. KELOLA INSTANSI ----------------
     elif menu_admin == "👥 Kelola Instansi":
         st.markdown("#### 👥 Kelola Data Instansi Asal")
@@ -355,15 +352,15 @@ def render_admin_portal():
                     elif not df_ins.empty and nama_ins.strip().lower() in df_ins["nama_instansi"].str.lower().tolist():
                         st.error("Instansi tersebut sudah terdaftar.")
                     else:
-                        new_id = _next_id(df_ins, "INS", "id_instansi")
+                        new_id = db_helper.next_id(df_ins, "INS", "id_instansi")
                         new_row = {"id_instansi": new_id, "nama_instansi": nama_ins.strip()}
                         st.session_state.db_instansi = pd.concat([df_ins, pd.DataFrame([new_row])], ignore_index=True)
-                        if spreadsheet_obj:
-                            try:
-                                spreadsheet_obj.worksheet("instansi").append_row([new_id, nama_ins.strip()])
-                            except Exception:
-                                pass
-                        st.session_state["flash_instansi"] = ("success", f"Instansi **{nama_ins.strip()}** berhasil ditambahkan!")
+
+                        ok, serr = db_helper.safe_append(spreadsheet_obj, "instansi", [new_id, nama_ins.strip()])
+                        st.session_state["flash_instansi"] = (
+                            ("success", f"Instansi **{nama_ins.strip()}** berhasil ditambahkan!") if ok
+                            else ("warning", f"Instansi tersimpan di aplikasi, tetapi gagal menulis ke Google Sheet. ({serr})")
+                        )
                         st.rerun()
 
         st.markdown("##### Daftar Instansi Terdaftar")
@@ -401,7 +398,7 @@ def render_admin_portal():
     elif menu_admin == "📑 Database Google Sheet":
         st.markdown("#### 📑 Lihat Isi Live Database Google Sheets")
         if st.button("🔄 Refresh Data dari Sheet"):
-            db_helper.sync_data_from_sheets(spreadsheet_obj)
+            db_helper.auto_connect_and_sync(force=True)
             st.success("Data berhasil disinkronkan!")
             st.rerun()
 

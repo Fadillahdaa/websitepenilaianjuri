@@ -4,6 +4,7 @@ from datetime import datetime
 import db_helper
 import styles
 
+
 def render_juri_portal():
     spreadsheet_obj, conn_err = db_helper.auto_connect_and_sync()
     tanggal_format = db_helper.get_current_date_indonesia()
@@ -63,6 +64,9 @@ def render_juri_portal():
             [data-testid="stForm"] input::placeholder { color:#8A93A8 !important; }
         </style>
         """, unsafe_allow_html=True)
+
+        if conn_err:
+            st.error(f"❌ Google Sheet bermasalah: {conn_err}")
 
         col_banner, col_form = st.columns([1.15, 1], gap="large", vertical_alignment="center")
 
@@ -125,40 +129,51 @@ def render_juri_portal():
                         st.error("Pilih instansi dari daftar atau ketik instansi baru.")
                     else:
                         nama_final = input_nama_juri.strip()
-                        
+
+                        # ---- Instansi ----
                         df_ins = st.session_state.db_instansi
-                        matched_ins = df_ins[df_ins['nama_instansi'].str.lower() == instansi_final_nama.lower()]
+                        if not df_ins.empty:
+                            matched_ins = df_ins[df_ins['nama_instansi'].str.lower() == instansi_final_nama.lower()]
+                        else:
+                            matched_ins = df_ins
                         if not matched_ins.empty:
                             instansi_id_final = matched_ins.iloc[0]['id_instansi']
                         else:
-                            new_ins_id = f"INS-{len(df_ins)+1:03d}"
-                            instansi_id_final = new_ins_id
+                            instansi_id_final = db_helper.next_id(df_ins, "INS", "id_instansi")
                             new_ins_row = {"id_instansi": instansi_id_final, "nama_instansi": instansi_final_nama}
-                            st.session_state.db_instansi = pd.concat([df_ins, pd.DataFrame([new_ins_row])], ignore_index=True)
-                            if spreadsheet_obj:
-                                try:
-                                    spreadsheet_obj.worksheet("instansi").append_row([instansi_id_final, instansi_final_nama])
-                                except Exception:
-                                    pass
+                            st.session_state.db_instansi = pd.concat(
+                                [df_ins, pd.DataFrame([new_ins_row])], ignore_index=True
+                            )
+                            ok, serr = db_helper.safe_append(
+                                spreadsheet_obj, "instansi", [instansi_id_final, instansi_final_nama]
+                            )
+                            if not ok:
+                                st.warning(f"Instansi baru gagal ditulis ke Google Sheet: {serr}")
 
+                        # ---- Juri ----
                         df_juri = st.session_state.db_juri
-                        existing_juri = df_juri[df_juri['nama_juri'].str.lower() == nama_final.lower()]
-                        
+                        if not df_juri.empty:
+                            existing_juri = df_juri[df_juri['nama_juri'].str.lower() == nama_final.lower()]
+                        else:
+                            existing_juri = df_juri
+
                         if not existing_juri.empty:
                             juri_id_final = existing_juri.iloc[0]['id_juri']
                         else:
-                            juri_id_final = f"JUR-{len(df_juri)+1:03d}"
+                            juri_id_final = db_helper.next_id(df_juri, "JUR", "id_juri")
                             new_juri_row = {
                                 "id_juri": juri_id_final,
                                 "nama_juri": nama_final,
                                 "id_instansi": instansi_id_final
                             }
-                            st.session_state.db_juri = pd.concat([df_juri, pd.DataFrame([new_juri_row])], ignore_index=True)
-                            if spreadsheet_obj:
-                                try:
-                                    spreadsheet_obj.worksheet("juri").append_row([juri_id_final, nama_final, instansi_id_final])
-                                except Exception:
-                                    pass
+                            st.session_state.db_juri = pd.concat(
+                                [df_juri, pd.DataFrame([new_juri_row])], ignore_index=True
+                            )
+                            ok, serr = db_helper.safe_append(
+                                spreadsheet_obj, "juri", [juri_id_final, nama_final, instansi_id_final]
+                            )
+                            if not ok:
+                                st.warning(f"Data juri gagal ditulis ke Google Sheet: {serr}")
 
                         st.session_state.juri_auth = {
                             "is_logged_in": True,
@@ -175,20 +190,24 @@ def render_juri_portal():
         juri_id_aktif = st.session_state.juri_auth["id_juri"]
         nama_juri_aktif = st.session_state.juri_auth["nama"]
         instansi_id_aktif = st.session_state.juri_auth["id_instansi"]
-        
+
         instansi_nama_aktif = instansi_id_aktif
         if not st.session_state.db_instansi.empty:
-            m_ins = st.session_state.db_instansi[st.session_state.db_instansi['id_instansi'].astype(str) == str(instansi_id_aktif)]
+            m_ins = st.session_state.db_instansi[
+                st.session_state.db_instansi['id_instansi'].astype(str) == str(instansi_id_aktif)
+            ]
             if not m_ins.empty:
                 instansi_nama_aktif = m_ins.iloc[0]['nama_instansi']
 
         total_peserta_count = len(st.session_state.db_peserta)
-        
+
         dinilai_juri_ini = 0
         if not st.session_state.db_penilaian.empty:
-            df_p_juri = st.session_state.db_penilaian[st.session_state.db_penilaian['id_juri'].astype(str) == str(juri_id_aktif)]
+            df_p_juri = st.session_state.db_penilaian[
+                st.session_state.db_penilaian['id_juri'].astype(str) == str(juri_id_aktif)
+            ]
             dinilai_juri_ini = df_p_juri['id_peserta'].nunique() if 'id_peserta' in df_p_juri.columns else len(df_p_juri)
-            
+
         sisa_peserta = max(0, total_peserta_count - dinilai_juri_ini)
         persen_progress = int((dinilai_juri_ini / total_peserta_count * 100)) if total_peserta_count > 0 else 0
 
@@ -200,14 +219,14 @@ def render_juri_portal():
                     <div style="font-size: 0.82rem; color: #6B7280; font-weight: 600;">{instansi_nama_aktif}</div>
                 </div>
             """, unsafe_allow_html=True)
-            
+
             menu_juri = styles.sidebar_menu(
                 ["🏠 Dashboard", "📝 Penilaian Peserta", "⭐ Peserta Favorit",
                  "📋 Riwayat Penilaian", "🚪 Logout"],
                 key="menu_juri_state",
                 divider_before="🚪 Logout",
             )
-            
+
             if menu_juri == "🚪 Logout":
                 st.session_state.juri_auth = {"is_logged_in": False, "id_juri": "", "nama": "", "id_instansi": ""}
                 st.session_state["menu_juri_state"] = "🏠 Dashboard"
@@ -225,9 +244,13 @@ def render_juri_portal():
             </div>
         """, unsafe_allow_html=True)
 
+        if conn_err:
+            st.error(f"❌ Google Sheet bermasalah: {conn_err}")
+
+        # ---------------- DASHBOARD ----------------
         if menu_juri == "🏠 Dashboard":
             st.markdown("### 🏠 Dashboard Penilaian")
-            
+
             c_m1, c_m2, c_m3 = st.columns(3)
             with c_m1:
                 st.markdown(f"""
@@ -265,18 +288,25 @@ def render_juri_portal():
                 </div>
             """, unsafe_allow_html=True)
 
+        # ---------------- PENILAIAN PESERTA ----------------
         elif menu_juri == "📝 Penilaian Peserta":
             st.markdown("### 📝 Form Penilaian Karya Peserta")
             st.markdown("<p style='color: #666; font-size: 0.9rem;'>Berikan nilai pada peserta sesuai 4 kriteria yang telah ditentukan (rentang nilai 0 - 100).</p>", unsafe_allow_html=True)
-            
+
+            if "flash_nilai" in st.session_state:
+                tipe, pesan = st.session_state.pop("flash_nilai")
+                (st.success if tipe == "success" else st.warning)(pesan)
+
             if st.session_state.db_peserta.empty:
                 st.warning("⚠️ Belum ada data peserta yang dimasukkan oleh Administrator.")
             else:
                 df_peserta = st.session_state.db_peserta
-                
+
                 sudah_dinilai_id_list = []
                 if not st.session_state.db_penilaian.empty:
-                    df_p_j = st.session_state.db_penilaian[st.session_state.db_penilaian['id_juri'].astype(str) == str(juri_id_aktif)]
+                    df_p_j = st.session_state.db_penilaian[
+                        st.session_state.db_penilaian['id_juri'].astype(str) == str(juri_id_aktif)
+                    ]
                     if 'id_peserta' in df_p_j.columns:
                         sudah_dinilai_id_list = df_p_j['id_peserta'].tolist()
 
@@ -289,10 +319,10 @@ def render_juri_portal():
                     label_display = f"{p_nama} [{p_id}] {status_icon}"
                     opsi_peserta.append(label_display)
                     map_label_ke_id[label_display] = p_id
-                    
+
                 selected_label = st.selectbox("Pilih Peserta:", options=opsi_peserta)
                 peserta_id_terpilih = map_label_ke_id[selected_label]
-                
+
                 info_p = df_peserta[df_peserta['id_peserta'] == peserta_id_terpilih].iloc[0]
                 peserta_nama_terpilih = info_p['nama_peserta']
 
@@ -308,7 +338,7 @@ def render_juri_portal():
                 default_catatan = ""
                 if peserta_id_terpilih in sudah_dinilai_id_list:
                     prev_row = st.session_state.db_penilaian[
-                        (st.session_state.db_penilaian['id_juri'].astype(str) == str(juri_id_aktif)) & 
+                        (st.session_state.db_penilaian['id_juri'].astype(str) == str(juri_id_aktif)) &
                         (st.session_state.db_penilaian['id_peserta'].astype(str) == str(peserta_id_terpilih))
                     ].iloc[-1]
                     default_scores = []
@@ -319,7 +349,7 @@ def render_juri_portal():
                             default_scores.append(80)
                     default_catatan = str(prev_row.get('catatan', '') or '')
                     st.info("ℹ️ Anda sudah pernah menilai peserta ini. Mengirim nilai baru akan memperbarui penilaian Anda.")
-                
+
                 st.markdown("<br><h4>4 Kriteria Penilaian (Skala 0 - 100)</h4>", unsafe_allow_html=True)
                 with st.form("form_skor_juri_4_kriteria"):
                     k1 = st.number_input("1. Riset & Relevansi Industri", 0, 100, default_scores[0])
@@ -334,21 +364,21 @@ def render_juri_portal():
                         max_chars=500,
                         key=f"catatan_{peserta_id_terpilih}",
                     )
-                        
+
                     scores = [k1, k2, k3, k4]
                     avg_val = round(sum(scores) / len(scores), 2)
-                    
+
                     st.markdown(f"""
                         <div style="background: white; border: 2px solid #3B507D; border-radius: 12px; padding: 14px; margin: 15px 0; text-align: center;">
                             <span style="color: #BEB7A7; font-weight: 600;">Rata-rata Skor Keseluruhan:</span>
                             <span style="font-size: 1.6rem; font-weight: 800; color: #112250; margin-left: 12px;">{avg_val}</span>
                         </div>
                     """, unsafe_allow_html=True)
-                    
+
                     if st.form_submit_button("💾 Simpan Nilai ➔"):
                         ts_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         penilaian_id = f"PEN-{int(datetime.now().timestamp())}"
-                        
+
                         new_penilaian = {
                             "id": penilaian_id,
                             "id_juri": juri_id_aktif,
@@ -358,19 +388,22 @@ def render_juri_portal():
                             "waktu_input": ts_now,
                             "catatan": catatan.strip()
                         }
-                        
+
                         df_pen = st.session_state.db_penilaian
                         if not df_pen.empty:
-                            mask = ~((df_pen['id_juri'].astype(str) == str(juri_id_aktif)) & (df_pen['id_peserta'].astype(str) == str(peserta_id_terpilih)))
+                            mask = ~((df_pen['id_juri'].astype(str) == str(juri_id_aktif)) &
+                                     (df_pen['id_peserta'].astype(str) == str(peserta_id_terpilih)))
                             st.session_state.db_penilaian = df_pen[mask]
-                            
-                        st.session_state.db_penilaian = pd.concat([st.session_state.db_penilaian, pd.DataFrame([new_penilaian])], ignore_index=True)
-                        
+
+                        st.session_state.db_penilaian = pd.concat(
+                            [st.session_state.db_penilaian, pd.DataFrame([new_penilaian])], ignore_index=True
+                        )
+
                         gagal_sheet = False
                         detail_error = ""
                         if spreadsheet_obj:
                             try:
-                                ws_pen = spreadsheet_obj.worksheet("penilaian")
+                                ws_pen = db_helper.get_ws(spreadsheet_obj, "penilaian")
 
                                 semua = ws_pen.get_all_values()
                                 baris_lama = [
@@ -390,40 +423,52 @@ def render_juri_portal():
                                 print(f"Gagal simpan penilaian ke Sheet: {detail_error}")
                         else:
                             gagal_sheet = True
-                            detail_error = "Koneksi ke Google Sheet tidak tersedia (spreadsheet_obj kosong)."
+                            detail_error = "Koneksi ke Google Sheet tidak tersedia."
 
                         if gagal_sheet:
-                            st.warning("Nilai tersimpan di aplikasi, tetapi gagal menulis ke Google Sheet.")
-                            st.code(detail_error)
+                            st.session_state["flash_nilai"] = (
+                                "warning",
+                                f"Nilai tersimpan di aplikasi, tetapi gagal menulis ke Google Sheet. ({detail_error})"
+                            )
                         else:
-                            st.success(f"🎉 Nilai untuk **{peserta_nama_terpilih}** berhasil disimpan! Rata-rata: **{avg_val}**")
-                            st.rerun()
+                            st.session_state["flash_nilai"] = (
+                                "success",
+                                f"🎉 Nilai untuk **{peserta_nama_terpilih}** berhasil disimpan! Rata-rata: **{avg_val}**"
+                            )
+                        st.rerun()
 
+        # ---------------- PESERTA FAVORIT ----------------
         elif menu_juri == "⭐ Peserta Favorit":
             st.markdown("### ⭐ Peserta Favorit Pilihan Anda")
             st.markdown("<p style='color: #666; font-size: 0.9rem;'>Pilih 1 peserta favorit Anda dari daftar berikut. Pilihan ini akan menjadi bagian dari hasil akhir penilaian.</p>", unsafe_allow_html=True)
-            
+
+            if "flash_fav" in st.session_state:
+                tipe, pesan = st.session_state.pop("flash_fav")
+                (st.success if tipe == "success" else st.warning)(pesan)
+
             if not st.session_state.db_peserta.empty:
                 df_peserta = st.session_state.db_peserta
                 current_fav_id = None
                 if not st.session_state.db_favorit.empty:
-                    df_fav_juri = st.session_state.db_favorit[st.session_state.db_favorit['id_juri'].astype(str) == str(juri_id_aktif)]
+                    df_fav_juri = st.session_state.db_favorit[
+                        st.session_state.db_favorit['id_juri'].astype(str) == str(juri_id_aktif)
+                    ]
                     if not df_fav_juri.empty and 'id_peserta' in df_fav_juri.columns:
                         current_fav_id = df_fav_juri.iloc[-1]['id_peserta']
 
                 list_id_peserta = df_peserta['id_peserta'].tolist()
                 idx_def = list_id_peserta.index(current_fav_id) if current_fav_id in list_id_peserta else 0
-                
+
                 with st.form("form_voting_favorit"):
                     selected_fav_label = st.selectbox(
                         "-- Pilih Peserta Favorit --",
                         options=df_peserta['nama_peserta'] + " [" + df_peserta['id_peserta'] + "]",
                         index=idx_def
                     )
-                    
+
                     pilih_fav_id = selected_fav_label.split("[")[-1].replace("]", "").strip()
                     st.markdown("<br>", unsafe_allow_html=True)
-                    
+
                     if st.form_submit_button("⭐ Simpan Pilihan Favorit"):
                         ts_fav = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         new_fav = {
@@ -432,26 +477,50 @@ def render_juri_portal():
                             "id_instansi": instansi_id_aktif,
                             "id_peserta": pilih_fav_id
                         }
-                        
+
                         df_fav = st.session_state.db_favorit
                         if not df_fav.empty:
                             st.session_state.db_favorit = df_fav[df_fav['id_juri'].astype(str) != str(juri_id_aktif)]
-                            
-                        st.session_state.db_favorit = pd.concat([st.session_state.db_favorit, pd.DataFrame([new_fav])], ignore_index=True)
-                        
+
+                        st.session_state.db_favorit = pd.concat(
+                            [st.session_state.db_favorit, pd.DataFrame([new_fav])], ignore_index=True
+                        )
+
+                        gagal_fav = False
+                        detail_fav = ""
                         if spreadsheet_obj:
                             try:
-                                spreadsheet_obj.worksheet("favorit").append_row([ts_fav, juri_id_aktif, instansi_id_aktif, pilih_fav_id])
-                            except Exception:
-                                pass
-                                
-                        st.success(f"Pilihan peserta favorit berhasil disimpan!")
-                        st.rerun()
+                                ws_fav = db_helper.get_ws(spreadsheet_obj, "favorit")
+                                semua = ws_fav.get_all_values()
+                                lama = [
+                                    i for i, r in enumerate(semua[1:], start=2)
+                                    if len(r) > 1 and r[1] == str(juri_id_aktif)
+                                ]
+                                for nomor in sorted(lama, reverse=True):
+                                    ws_fav.delete_rows(nomor)
+                                ws_fav.append_row([ts_fav, juri_id_aktif, instansi_id_aktif, pilih_fav_id])
+                            except Exception as e:
+                                gagal_fav = True
+                                detail_fav = f"{type(e).__name__}: {e}"
+                        else:
+                            gagal_fav = True
+                            detail_fav = "Koneksi ke Google Sheet tidak tersedia."
 
+                        st.session_state["flash_fav"] = (
+                            ("warning", f"Pilihan tersimpan di aplikasi, tetapi gagal menulis ke Google Sheet. ({detail_fav})")
+                            if gagal_fav else ("success", "Pilihan peserta favorit berhasil disimpan!")
+                        )
+                        st.rerun()
+            else:
+                st.warning("⚠️ Belum ada data peserta yang dimasukkan oleh Administrator.")
+
+        # ---------------- RIWAYAT ----------------
         elif menu_juri == "📋 Riwayat Penilaian":
             st.markdown(f"### 📋 Riwayat Penilaian oleh {nama_juri_aktif}")
             if not st.session_state.db_penilaian.empty:
-                df_my = st.session_state.db_penilaian[st.session_state.db_penilaian['id_juri'].astype(str) == str(juri_id_aktif)]
+                df_my = st.session_state.db_penilaian[
+                    st.session_state.db_penilaian['id_juri'].astype(str) == str(juri_id_aktif)
+                ]
                 if not df_my.empty:
                     st.dataframe(df_my, use_container_width=True)
                 else:
