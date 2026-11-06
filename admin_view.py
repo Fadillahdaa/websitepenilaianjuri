@@ -1,5 +1,8 @@
+import io
+import base64
 import streamlit as st
 import pandas as pd
+from PIL import Image, ImageOps
 import db_helper
 import styles
 
@@ -62,6 +65,45 @@ def _show_flash(key):
         (st.success if flash[0] == "success" else st.warning)(flash[1])
 
 
+def _compress_image_to_base64(uploaded_file, max_side=300, max_chars=45000):
+    """Kecilkan & kompres gambar agar base64 < batas 50.000 karakter per sel Google Sheets."""
+    img = Image.open(uploaded_file)
+    img = ImageOps.exif_transpose(img)
+    if img.mode in ("RGBA", "LA", "P"):
+        img = img.convert("RGBA")
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        bg.paste(img, mask=img.split()[-1])
+        img = bg
+    else:
+        img = img.convert("RGB")
+
+    side, quality = max_side, 80
+    while True:
+        thumb = img.copy()
+        thumb.thumbnail((side, side))
+        buf = io.BytesIO()
+        thumb.save(buf, format="JPEG", quality=quality, optimize=True)
+        b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+        if len(b64) <= max_chars or (side <= 80 and quality <= 40):
+            return f"data:image/jpeg;base64,{b64}"
+        quality = max(40, quality - 10)
+        side = max(80, int(side * 0.85))
+
+
+def _tampilkan_foto(container, foto_data, width=80):
+    foto_data = str(foto_data or "").strip()
+    if not foto_data or foto_data == "-":
+        container.write("-")
+        return
+    try:
+        if foto_data.startswith("data:image"):
+            container.image(base64.b64decode(foto_data.split(",", 1)[1]), width=width)
+        else:
+            container.image(foto_data, width=width)
+    except Exception:
+        container.write("⚠️ Foto rusak")
+
+
 # ============================ POPUP PESERTA ============================
 @_dialog("✏️ Edit Peserta")
 def dialog_edit_peserta(id_peserta, spreadsheet_obj):
@@ -92,7 +134,7 @@ def dialog_edit_peserta(id_peserta, spreadsheet_obj):
         gagal = False
         if spreadsheet_obj:
             try:
-                ws = spreadsheet_obj.worksheet("peserta")
+                ws = spreadsheet_obj.worksheet("Peserta")
                 cells = _exact_cells(ws, id_peserta, 1)
                 if cells:
                     ws.update_cell(cells[0].row, 2, nama_baru)
@@ -127,7 +169,7 @@ def dialog_hapus_peserta(id_peserta, nama, spreadsheet_obj):
         gagal = False
         if spreadsheet_obj:
             try:
-                ws = spreadsheet_obj.worksheet("peserta")
+                ws = spreadsheet_obj.worksheet("Peserta")
                 for r in sorted({c.row for c in _exact_cells(ws, id_peserta, 1)}, reverse=True):
                     ws.delete_rows(r)
             except Exception:
@@ -266,11 +308,11 @@ def render_admin_portal():
                         err_sheet = False
                         if spreadsheet_obj:
                             try:
-                                ws = spreadsheet_obj.worksheet("peserta")
+                                ws = spreadsheet_obj.worksheet("Peserta")
                                 ws.append_row([new_id, p_nama.strip(), "Belum Lengkap"])
                             except Exception as e:
                                 err_sheet = True
-                                print(f"Gagal append ke sheet peserta: {e}")
+                                print(f"Gagal append ke sheet Peserta: {e}")
 
                         st.session_state["flash_peserta"] = (
                             ("warning", f"Peserta **{p_nama.strip()}** tersimpan di aplikasi, tetapi gagal menulis ke Google Sheet.")
@@ -298,7 +340,6 @@ def render_admin_portal():
                         dialog_edit_peserta(r["id_peserta"], spreadsheet_obj)
                     if c[4].button("🗑️ Hapus", key=f"del_{r['id_peserta']}"):
                         dialog_hapus_peserta(r["id_peserta"], r["nama_peserta"], spreadsheet_obj)
-
     # ---------------- 3. KELOLA INSTANSI ----------------
     elif menu_admin == "👥 Kelola Instansi":
         st.markdown("#### 👥 Kelola Data Instansi Asal")
@@ -343,26 +384,10 @@ def render_admin_portal():
     # ---------------- 4. RANKING & NILAI ----------------
     elif menu_admin == "🏆 Ranking & Nilai":
         st.markdown("#### 🏆 Klasemen Ranking Akhir & Seluruh Nilai Juri")
-        df_n = st.session_state.db_penilaian
-        if df_n.empty:
-            st.info("Belum ada data penilaian masuk dari dewan juri.")
+        if not st.session_state.db_penilaian.empty:
+            st.dataframe(st.session_state.db_penilaian, use_container_width=True)
         else:
-            st.dataframe(df_n, use_container_width=True)
-
-            if "catatan" in df_n.columns:
-                st.markdown("##### 📝 Catatan Juri")
-                df_c = df_n[df_n["catatan"].astype(str).str.strip() != ""]
-                if df_c.empty:
-                    st.caption("Belum ada catatan dari juri.")
-                else:
-                    df_pes = st.session_state.db_peserta
-                    nama_map = dict(zip(df_pes["id_peserta"], df_pes["nama_peserta"]))
-                    for _, r in df_c.iterrows():
-                        peserta = nama_map.get(r.get("id_peserta"), r.get("id_peserta", "-"))
-                        juri = r.get("id_juri", "-")
-                        with st.container(border=True):
-                            st.markdown(f"**{peserta}** · oleh {juri}")
-                            st.write(r["catatan"])
+            st.info("Belum ada data penilaian masuk dari dewan juri.")
 
     # ---------------- 5. PESERTA FAVORIT ----------------
     elif menu_admin == "⭐ Peserta Favorit":
