@@ -19,7 +19,17 @@ html, body, .stApp, .stApp p, .stApp div, .stApp label, .stApp input,
 }
 
 %STAGE%
-[data-testid="stHeader"] { background: transparent !important; }
+/* ================= SEMBUNYIKAN TOOLBAR & HEADER STREAMLIT ================= */
+[data-testid="stHeader"] { 
+    background: transparent !important; 
+    display: none !important; 
+    visibility: hidden !important; 
+}
+[data-testid="stToolbar"] { 
+    display: none !important; 
+    visibility: hidden !important; 
+    opacity: 0 !important; 
+}
 [data-testid="stSidebarNav"], [data-testid="stSidebarNavItems"] { display: none !important; }
 
 /* ================= SIDEBAR ================= */
