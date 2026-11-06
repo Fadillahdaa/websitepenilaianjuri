@@ -32,13 +32,13 @@ _ADMIN_CSS = """
         font-size: 1.8rem;
         font-weight: 800;
         text-align: center;
-        margin-bottom: 6px;
+        margin-bottom: 4px;
     }
     .login-subtitle {
         color: #5B6B8C;
         font-size: 0.9rem;
         text-align: center;
-        margin-bottom: 25px;
+        margin-bottom: 20px;
     }
     .login-footer-text {
         text-align: center;
@@ -179,13 +179,14 @@ def render_admin_portal():
     if "admin_logged_in" not in st.session_state:
         st.session_state.admin_logged_in = False
 
-    # ================= FORM LOGIN ADMIN =================
+    # ================= FORM LOGIN ADMIN (SATU KARTU TERPADU) =================
     if not st.session_state.admin_logged_in:
         styles.inject(dark_stage=True)
         st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
         
         _, col_center, _ = st.columns([1, 1.2, 1])
         with col_center:
+            # Membungkus judul dan form ke dalam satu container HTML card yang sama
             st.markdown("""
                 <div class="login-container">
                     <div class="login-card-admin">
