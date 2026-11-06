@@ -101,7 +101,7 @@ def render_juri_portal():
                 """, unsafe_allow_html=True)
 
                 input_nama_juri = st.text_input(
-                    "Nama Lengkap Juri (dengan Gelar)*",
+                    "Nama Lengkap*",
                     placeholder="Contoh: Dr. Ir. Ahmad Subarjo, M.Kom"
                 )
                 selected_instansi = st.selectbox("Pilih Instansi Asal*", options=[PLACEHOLDER] + daftar_instansi_nama)
@@ -110,7 +110,7 @@ def render_juri_portal():
                     placeholder="Contoh: PT Inovasi Digital"
                 )
 
-                btn_masuk = st.form_submit_button("Masuk ke Sistem Penilaian ➔")
+                btn_masuk = st.form_submit_button("Masuk ke Sistem Penilaian")
 
                 st.markdown('<div class="login-foot">FINAL PROJECT PBK DIGITAL AI WORK EXHIBITION</div>',
                             unsafe_allow_html=True)

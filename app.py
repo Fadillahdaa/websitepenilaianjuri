@@ -13,10 +13,17 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- TAMBAHKAN KODE INI UNTUK MENYEMBUNYIKAN TOOLBAR / TOMBOL EDIT ---
+hide_streamlit_style = """
+    <style>
+    [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
+    </style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+# -----------------------------------------------------------------------------
+
 # ==============================================================================
-# NATIVE ROUTING STREAMLIT DENGAN url_path KHUSUS:
-# - URL: https://penilaianjuri.streamlit.app/           -> Halaman Sisi Juri (Default)
-# - URL: https://penilaianjuri.streamlit.app/admin_masuk -> Halaman Sisi Admin
+# NATIVE ROUTING STREAMLIT...
 # ==============================================================================
 if hasattr(st, "navigation") and hasattr(st, "Page"):
     page_juri = st.Page(
@@ -31,15 +38,13 @@ if hasattr(st, "navigation") and hasattr(st, "Page"):
         admin_view.render_admin_portal,
         title="Panel Administrator",
         icon="⚙️",
-        url_path="admin_masuk"  # Mengatur endpoint URL menjadi /admin_masuk
+        url_path="admin_masuk"
     )
 
-    # Biarkan st.navigation yang mengatur perpindahan halaman berdasarkan URL secara otomatis
     pg = st.navigation([page_juri, page_admin], position="hidden")
     pg.run()
 
 else:
-    # Fallback untuk versi Streamlit legacy (< 1.36)
     qp = st.query_params
     is_admin = False
     if "admin" in str(qp.get("page", "")).lower() or "admin_masuk" in str(qp).lower():
