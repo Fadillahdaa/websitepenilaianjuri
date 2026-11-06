@@ -17,38 +17,47 @@ _ADMIN_CSS = """
         justify-content: center;
         align-items: center;
         min-height: 75vh;
+        padding: 10px;
     }
     .login-card-admin {
         background: #ffffff;
         border: 1px solid #E7E2CE !important;
         border-radius: 20px;
-        padding: 35px 30px;
-        box-shadow: 0 12px 30px rgba(17, 34, 80, 0.15);
+        padding: 35px 30px 25px 30px;
+        box-shadow: 0 15px 35px rgba(17, 34, 80, 0.2);
         width: 100%;
         max-width: 440px;
     }
     .login-title {
         color: #112250;
-        font-size: 1.8rem;
+        font-size: 1.75rem;
         font-weight: 800;
         text-align: center;
         margin-bottom: 4px;
     }
     .login-subtitle {
         color: #5B6B8C;
-        font-size: 0.9rem;
+        font-size: 0.88rem;
         text-align: center;
-        margin-bottom: 20px;
+        margin-bottom: 18px;
     }
     .login-footer-text {
         text-align: center;
-        margin-top: 20px;
-        padding-top: 15px;
+        margin-top: 15px;
+        padding-top: 12px;
         border-top: 1px solid #E7E2CE;
         color: #8A93A8;
-        font-size: 0.72rem;
+        font-size: 0.7rem;
         letter-spacing: .5px;
         font-weight: 700;
+    }
+
+    /* Menghilangkan border/padding bawaan st.form agar menyatu rata di dalam kartu */
+    [data-testid="stForm"] {
+        border: none !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+        background: transparent !important;
     }
 
     [data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"] {
@@ -179,14 +188,14 @@ def render_admin_portal():
     if "admin_logged_in" not in st.session_state:
         st.session_state.admin_logged_in = False
 
-    # ================= FORM LOGIN ADMIN (SATU KARTU TERPADU) =================
+    # ================= FORM LOGIN ADMIN (1 KOTAK UTUH MENYATU) =================
     if not st.session_state.admin_logged_in:
         styles.inject(dark_stage=True)
         st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
         
         _, col_center, _ = st.columns([1, 1.2, 1])
         with col_center:
-            # Membungkus judul dan form ke dalam satu container HTML card yang sama
+            # Membuka pembungkus kartu HTML tunggal
             st.markdown("""
                 <div class="login-container">
                     <div class="login-card-admin">
@@ -207,6 +216,7 @@ def render_admin_portal():
                     else:
                         st.error("Username atau password salah!")
 
+            # Menutup pembungkus kartu HTML tunggal
             st.markdown("""
                         <div class="login-footer-text">FINAL PROJECT PBK DIGITAL AI WORK EXHIBITION</div>
                     </div>
