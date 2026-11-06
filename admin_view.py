@@ -12,6 +12,23 @@ if _dialog is None:
 
 _ADMIN_CSS = """
 <style>
+    /* Styling untuk penataan posisi tengah login */
+    .login-wrapper {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 75vh;
+    }
+    .login-card {
+        background: #112250;
+        border: 2px solid #E7E2CE;
+        border-radius: 20px;
+        padding: 35px 30px;
+        box-shadow: 0 15px 35px rgba(17, 34, 80, 0.3);
+        width: 100%;
+        max-width: 450px;
+    }
+    
     [data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"] {
         background: #ffffff; border-color: #E7E2CE !important; border-radius: 14px !important;
     }
@@ -137,22 +154,25 @@ def dialog_hapus_peserta(id_peserta, nama, spreadsheet_obj):
 
 # ============================ HALAMAN ADMIN ============================
 def render_admin_portal():
-    # Inisialisasi status login admin di session state
     if "admin_logged_in" not in st.session_state:
         st.session_state.admin_logged_in = False
 
-    # JIKA BELUM LOGIN: Tampilkan halaman form login admin dan hentikan proses di sini
+    # ================= FORM LOGIN ADMIN (CENTERED & COLOR PALETTE) =================
     if not st.session_state.admin_logged_in:
         styles.inject(dark_stage=True)
         st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
         
-        col_1, col_center, col_3 = st.columns([1, 1.2, 1])
+        # Menggunakan struktur kolom agar berada tepat di tengah layar secara horizontal
+        _, col_center, _ = st.columns([1, 1.3, 1])
         with col_center:
             st.markdown("""
-                <div style="background: rgba(255,255,255,0.05); border: 1px solid rgba(231,226,206,0.2); border-radius: 16px; padding: 32px; margin-top: 50px; text-align: center;">
-                    <div style="font-size: 40px; margin-bottom: 10px;">🔐</div>
-                    <h3 style="color: #ffffff; margin: 0 0 5px 0;">Panel Administrator</h3>
-                    <p style="color: #BEB7A7; font-size: 0.9rem; margin-bottom: 25px;">Autentikasi khusus superadmin diperlukan</p>
+                <div style="display: flex; justify-content: center; align-items: center; min-height: 80vh;">
+                    <div style="background: #112250; border: 2px solid #E7E2CE; border-radius: 20px; padding: 35px 30px; box-shadow: 0 15px 35px rgba(17, 34, 80, 0.4); width: 100%;">
+                        <div style="text-align: center; margin-bottom: 20px;">
+                            <div style="font-size: 42px; margin-bottom: 8px;">🔐</div>
+                            <h3 style="color: #ffffff; margin: 0 0 5px 0; font-weight: 800;">Panel Administrator</h3>
+                            <p style="color: #BEB7A7; font-size: 0.88rem; margin: 0;">Autentikasi superadmin diperlukan</p>
+                        </div>
             """, unsafe_allow_html=True)
 
             with st.form("form_login_admin"):
@@ -168,10 +188,10 @@ def render_admin_portal():
                     else:
                         st.error("Username atau password salah!")
 
-            st.markdown("</div>", unsafe_allow_html=True)
-        return  # Menghentikan eksekusi script selanjutnya agar isi panel admin tidak terlihat
+            st.markdown("</div></div>", unsafe_allow_html=True)
+        return
 
-    # ================= JIKA SUDAH LOGIN: TAMPILKAN PANEL UTAMA ADMIN =================
+    # ================= PANEL UTAMA ADMIN SETELAH LOGIN =================
     styles.inject()
     st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
 
