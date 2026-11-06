@@ -13,6 +13,11 @@ _CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
+/* Mencegah browser memaksa auto dark mode */
+:root {
+    color-scheme: light dark;
+}
+
 html, body, .stApp, .stApp p, .stApp div, .stApp label, .stApp input,
 .stApp button, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp textarea {
     font-family: 'Plus Jakarta Sans', sans-serif;
