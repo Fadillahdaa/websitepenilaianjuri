@@ -12,23 +12,46 @@ if _dialog is None:
 
 _ADMIN_CSS = """
 <style>
-    /* Styling untuk penataan posisi tengah login */
-    .login-wrapper {
+    /* Styling khusus form login admin agar persis seperti gaya referensi */
+    .login-container {
         display: flex;
-        align-items: center;
         justify-content: center;
+        align-items: center;
         min-height: 75vh;
     }
-    .login-card {
-        background: #112250;
-        border: 2px solid #E7E2CE;
+    .login-card-admin {
+        background: #ffffff;
+        border: 1px solid #E7E2CE !important;
         border-radius: 20px;
         padding: 35px 30px;
-        box-shadow: 0 15px 35px rgba(17, 34, 80, 0.3);
+        box-shadow: 0 12px 30px rgba(17, 34, 80, 0.15);
         width: 100%;
-        max-width: 450px;
+        max-width: 440px;
     }
-    
+    .login-title {
+        color: #112250;
+        font-size: 1.8rem;
+        font-weight: 800;
+        text-align: center;
+        margin-bottom: 6px;
+    }
+    .login-subtitle {
+        color: #5B6B8C;
+        font-size: 0.9rem;
+        text-align: center;
+        margin-bottom: 25px;
+    }
+    .login-footer-text {
+        text-align: center;
+        margin-top: 20px;
+        padding-top: 15px;
+        border-top: 1px solid #E7E2CE;
+        color: #8A93A8;
+        font-size: 0.72rem;
+        letter-spacing: .5px;
+        font-weight: 700;
+    }
+
     [data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"] {
         background: #ffffff; border-color: #E7E2CE !important; border-radius: 14px !important;
     }
@@ -157,38 +180,38 @@ def render_admin_portal():
     if "admin_logged_in" not in st.session_state:
         st.session_state.admin_logged_in = False
 
-    # ================= FORM LOGIN ADMIN (CENTERED & COLOR PALETTE) =================
+    # ================= FORM LOGIN ADMIN (CENTERED) =================
     if not st.session_state.admin_logged_in:
         styles.inject(dark_stage=True)
         st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
         
-        # Menggunakan struktur kolom agar berada tepat di tengah layar secara horizontal
-        _, col_center, _ = st.columns([1, 1.3, 1])
+        _, col_center, _ = st.columns([1, 1.2, 1])
         with col_center:
             st.markdown("""
-                <div style="display: flex; justify-content: center; align-items: center; min-height: 80vh;">
-                    <div style="background: #112250; border: 2px solid #E7E2CE; border-radius: 20px; padding: 35px 30px; box-shadow: 0 15px 35px rgba(17, 34, 80, 0.4); width: 100%;">
-                        <div style="text-align: center; margin-bottom: 20px;">
-                            <div style="font-size: 42px; margin-bottom: 8px;">🔐</div>
-                            <h3 style="color: #ffffff; margin: 0 0 5px 0; font-weight: 800;">Panel Administrator</h3>
-                            <p style="color: #BEB7A7; font-size: 0.88rem; margin: 0;">Autentikasi superadmin diperlukan</p>
-                        </div>
+                <div class="login-container">
+                    <div class="login-card-admin">
+                        <div class="login-title">Selamat Datang</div>
+                        <div class="login-subtitle">Silakan masuk untuk mengakses sistem penilaian</div>
             """, unsafe_allow_html=True)
 
             with st.form("form_login_admin"):
-                username_input = st.text_input("Username Administrator")
-                password_input = st.text_input("Password", type="password")
-                btn_login = st.form_submit_button("Masuk Panel ➔", use_container_width=True)
+                username_input = st.text_input("Username", placeholder="Masukkan username")
+                password_input = st.text_input("Password", type="password", placeholder="Masukkan password")
+                btn_login = st.form_submit_button("Masuk ➔", use_container_width=True)
 
                 if btn_login:
                     if username_input == "superadmin" and password_input == "adminsuper*3#12":
                         st.session_state.admin_logged_in = True
-                        st.success("Login Berhasil! Memuat panel...")
+                        st.success("Login berhasil! Memuat sistem...")
                         st.rerun()
                     else:
                         st.error("Username atau password salah!")
 
-            st.markdown("</div></div>", unsafe_allow_html=True)
+            st.markdown("""
+                        <div class="login-footer-text">FINAL PROJECT PBK DIGITAL AI WORK EXHIBITION</div>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
         return
 
     # ================= PANEL UTAMA ADMIN SETELAH LOGIN =================
