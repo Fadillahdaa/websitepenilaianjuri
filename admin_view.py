@@ -12,7 +12,6 @@ if _dialog is None:
 
 _ADMIN_CSS = """
 <style>
-    /* Styling khusus form login admin agar persis seperti gaya referensi */
     .login-container {
         display: flex;
         justify-content: center;
@@ -180,7 +179,7 @@ def render_admin_portal():
     if "admin_logged_in" not in st.session_state:
         st.session_state.admin_logged_in = False
 
-    # ================= FORM LOGIN ADMIN (CENTERED) =================
+    # ================= FORM LOGIN ADMIN =================
     if not st.session_state.admin_logged_in:
         styles.inject(dark_stage=True)
         st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
