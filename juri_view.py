@@ -441,34 +441,32 @@ def render_juri_portal():
         elif menu_juri == "⭐ Peserta Favorit":
             st.markdown("### ⭐ Peserta Favorit Pilihan Anda")
             st.markdown("<p style='color: #666; font-size: 0.9rem;'>Pilih 1 peserta favorit Anda dari daftar berikut. Pilihan ini akan menjadi bagian dari hasil akhir penilaian.</p>", unsafe_allow_html=True)
-
-            if "flash_fav" in st.session_state:
-                tipe, pesan = st.session_state.pop("flash_fav")
-                (st.success if tipe == "success" else st.warning)(pesan)
-
+            
             if not st.session_state.db_peserta.empty:
                 df_peserta = st.session_state.db_peserta
                 current_fav_id = None
                 if not st.session_state.db_favorit.empty:
-                    df_fav_juri = st.session_state.db_favorit[
-                        st.session_state.db_favorit['id_juri'].astype(str) == str(juri_id_aktif)
-                    ]
+                    df_fav_juri = st.session_state.db_favorit[st.session_state.db_favorit['id_juri'].astype(str) == str(juri_id_aktif)]
                     if not df_fav_juri.empty and 'id_peserta' in df_fav_juri.columns:
                         current_fav_id = df_fav_juri.iloc[-1]['id_peserta']
 
                 list_id_peserta = df_peserta['id_peserta'].tolist()
                 idx_def = list_id_peserta.index(current_fav_id) if current_fav_id in list_id_peserta else 0
-
+                
+                # Menyiapkan list opsi format string "Nama [ID]"
+                opsi_peserta_list = (df_peserta['nama_peserta'] + " [" + df_peserta['id_peserta'] + "]").tolist()
+                
                 with st.form("form_voting_favorit"):
-                    selected_fav_label = st.selectbox(
-                        "-- Pilih Peserta Favorit --",
-                        options=df_peserta['nama_peserta'] + " [" + df_peserta['id_peserta'] + "]",
+                    # Mengganti st.selectbox menjadi st.radio agar semua nama langsung tampil ke bawah
+                    selected_fav_label = st.radio(
+                        "Daftar Kandidat Peserta:",
+                        options=opsi_peserta_list,
                         index=idx_def
                     )
-
+                    
                     pilih_fav_id = selected_fav_label.split("[")[-1].replace("]", "").strip()
                     st.markdown("<br>", unsafe_allow_html=True)
-
+                    
                     if st.form_submit_button("⭐ Simpan Pilihan Favorit"):
                         ts_fav = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         new_fav = {
@@ -477,43 +475,23 @@ def render_juri_portal():
                             "id_instansi": instansi_id_aktif,
                             "id_peserta": pilih_fav_id
                         }
-
+                        
                         df_fav = st.session_state.db_favorit
                         if not df_fav.empty:
                             st.session_state.db_favorit = df_fav[df_fav['id_juri'].astype(str) != str(juri_id_aktif)]
-
-                        st.session_state.db_favorit = pd.concat(
-                            [st.session_state.db_favorit, pd.DataFrame([new_fav])], ignore_index=True
-                        )
-
-                        gagal_fav = False
-                        detail_fav = ""
+                            
+                        st.session_state.db_favorit = pd.concat([st.session_state.db_favorit, pd.DataFrame([new_fav])], ignore_index=True)
+                        
                         if spreadsheet_obj:
                             try:
-                                ws_fav = db_helper.get_ws(spreadsheet_obj, "favorit")
-                                semua = ws_fav.get_all_values()
-                                lama = [
-                                    i for i, r in enumerate(semua[1:], start=2)
-                                    if len(r) > 1 and r[1] == str(juri_id_aktif)
-                                ]
-                                for nomor in sorted(lama, reverse=True):
-                                    ws_fav.delete_rows(nomor)
-                                ws_fav.append_row([ts_fav, juri_id_aktif, instansi_id_aktif, pilih_fav_id])
-                            except Exception as e:
-                                gagal_fav = True
-                                detail_fav = f"{type(e).__name__}: {e}"
-                        else:
-                            gagal_fav = True
-                            detail_fav = "Koneksi ke Google Sheet tidak tersedia."
-
-                        st.session_state["flash_fav"] = (
-                            ("warning", f"Pilihan tersimpan di aplikasi, tetapi gagal menulis ke Google Sheet. ({detail_fav})")
-                            if gagal_fav else ("success", "Pilihan peserta favorit berhasil disimpan!")
-                        )
+                                spreadsheet_obj.worksheet("favorit").append_row([ts_fav, juri_id_aktif, instansi_id_aktif, pilih_fav_id])
+                            except Exception:
+                                pass
+                                
+                        st.success(f"Pilihan peserta favorit berhasil disimpan!")
                         st.rerun()
             else:
-                st.warning("⚠️ Belum ada data peserta yang dimasukkan oleh Administrator.")
-
+                st.warning("⚠️ Belum ada data peserta yang tersedia.")
         # ---------------- RIWAYAT ----------------
         elif menu_juri == "📋 Riwayat Penilaian":
             st.markdown(f"### 📋 Riwayat Penilaian oleh {nama_juri_aktif}")
