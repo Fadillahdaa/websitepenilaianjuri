@@ -177,10 +177,42 @@ def dialog_hapus_peserta(id_peserta, nama, spreadsheet_obj):
 
 # ============================ HALAMAN ADMIN ============================
 def render_admin_portal():
-    spreadsheet_obj, conn_err = db_helper.auto_connect_and_sync()
-    tanggal_format = db_helper.get_current_date_indonesia()
     styles.inject()
     st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
+
+    # Inisialisasi session state login admin
+    if "admin_logged_in" not in st.session_state:
+        st.session_state.admin_logged_in = False
+
+    # ================= FORM LOGIN ADMIN =================
+    if not st.session_state.admin_logged_in:
+        col_1, col_center, col_3 = st.columns([1, 1.2, 1])
+        with col_center:
+            st.markdown("""
+                <div style="text-align: center; margin-top: 40px; margin-bottom: 20px;">
+                    <div style="font-size: 40px;">🔐</div>
+                    <h3 style="color: #112250; margin: 10px 0 5px 0;">Login Administrator</h3>
+                    <p style="color: #6B7280; font-size: 0.9rem;">Masukkan akun superadmin untuk mengakses panel</p>
+                </div>
+            """, unsafe_allow_html=True)
+
+            with st.form("form_login_admin"):
+                username_input = st.text_input("Username")
+                password_input = st.text_input("Password", type="password")
+                btn_login = st.form_submit_button("Masuk Panel ➔", use_container_width=True)
+
+                if btn_login:
+                    if username_input == "superadmin" and password_input == "adminsuper*3#12":
+                        st.session_state.admin_logged_in = True
+                        st.success("Login berhasil!")
+                        st.rerun()
+                    else:
+                        st.error("Username atau password salah!")
+        return  # Hentikan eksekusi jika belum login
+
+    # ================= PANEL UTAMA ADMIN SETELAH LOGIN =================
+    spreadsheet_obj, conn_err = db_helper.auto_connect_and_sync()
+    tanggal_format = db_helper.get_current_date_indonesia()
 
     with st.sidebar:
         st.markdown("""
@@ -206,9 +238,15 @@ def render_admin_portal():
 
         menu_admin = styles.sidebar_menu(
             ["📊 Dashboard", "📁 Kelola Peserta", "👥 Kelola Instansi",
-             "🏆 Ranking & Nilai", "⭐ Peserta Favorit", "📑 Database Google Sheet"],
+             "🏆 Ranking & Nilai", "⭐ Peserta Favorit", "📑 Database Google Sheet", "🚪 Logout Admin"],
             key="menu_admin_state",
         )
+        
+        if menu_admin == "🚪 Logout Admin":
+            st.session_state.admin_logged_in = False
+            st.session_state["menu_admin_state"] = "📊 Dashboard"
+            st.rerun()
+
         st.markdown("<br><hr style='border-color: #3B507D; opacity: 0.4;'>", unsafe_allow_html=True)
         st.caption("📍 URL Akses: `/admin_masuk`")
 
@@ -236,8 +274,8 @@ def render_admin_portal():
 
         c1, c2, c3 = st.columns(3)
         for col, angka, label in [(c1, total_peserta, "Total Peserta"),
-                                  (c2, total_juri, "Juri Terdaftar"),
-                                  (c3, total_penilaian, "Penilaian Masuk")]:
+                                 (c2, total_juri, "Juri Terdaftar"),
+                                 (c3, total_penilaian, "Penilaian Masuk")]:
             with col:
                 st.markdown(f"""<div class="metric-card"><h2 style="color:#112250; font-size: 2rem; margin:0;">{angka}</h2><p style="color:#6B7280; font-size:0.9rem; font-weight:600; margin:6px 0 0 0;">{label}</p></div>""", unsafe_allow_html=True)
 
