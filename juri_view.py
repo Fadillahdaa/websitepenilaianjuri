@@ -24,23 +24,34 @@ KRITERIA = [
 
 _JURI_CSS = """
 <style>
-    [data-testid="stDialog"] h1, [data-testid="stDialog"] h2,
-    [data-testid="stDialog"] h3, [data-testid="stDialog"] h4,
-    [data-testid="stDialog"] p, [data-testid="stDialog"] label p,
-    [data-testid="stDialog"] li { color: #112250 !important; }
-    [data-testid="stDialog"] .stButton > button {
-        background-color: #112250 !important; color: #ffffff !important;
-        border: none !important; border-radius: 10px !important;
-        font-weight: 700 !important; width: 100% !important; padding: 10px 20px !important;
+    html body [data-testid="stDialog"] h1, html body [data-testid="stDialog"] h2,
+    html body [data-testid="stDialog"] h3, html body [data-testid="stDialog"] h4,
+    html body [data-testid="stDialog"] p, html body [data-testid="stDialog"] label p,
+    html body [data-testid="stDialog"] li { color: #112250 !important; }
+
+    /* Tombol di dalam popup: latar navy, tulisan putih */
+    html body [data-testid="stDialog"] .stButton > button {
+        background-color: #112250 !important;
+        color: #ffffff !important;
+        border: none !important;
+        border-radius: 10px !important;
+        width: 100% !important;
+        min-height: 44px !important;
+        padding: 10px 20px !important;
     }
-    [data-testid="stDialog"] .stButton > button:hover {
-        background-color: #1a3375 !important; color: #3BF07D !important;
+    html body [data-testid="stDialog"] .stButton > button *,
+    html body [data-testid="stDialog"] .stButton > button p {
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        font-size: 1rem !important;
     }
-    /* Teks di dalam tombol (elemen p/div anak) harus ikut putih, bukan navy */
-    [data-testid="stDialog"] .stButton > button *,
-    [data-testid="stDialog"] .stButton > button p { color: #ffffff !important; }
-    [data-testid="stDialog"] .stButton > button:hover *,
-    [data-testid="stDialog"] .stButton > button:hover p { color: #3BF07D !important; }
+    html body [data-testid="stDialog"] .stButton > button:hover {
+        background-color: #1a3375 !important;
+    }
+    html body [data-testid="stDialog"] .stButton > button:hover *,
+    html body [data-testid="stDialog"] .stButton > button:hover p {
+        color: #3BF07D !important;
+    }
 </style>
 """
 
@@ -216,6 +227,7 @@ def _popup_nilai(nama, hasil, diperbarui):
 # ============================ POPUP ============================
 @_dialog("🔔 Notifikasi")
 def dialog_notif(tipe, judul, pesan):
+    st.markdown(_JURI_CSS, unsafe_allow_html=True)
     ikon = {"success": "✅", "warning": "⚠️", "error": "❌"}.get(tipe, "ℹ️")
     st.markdown(f"### {ikon} {judul}")
     st.markdown(pesan)
@@ -227,6 +239,7 @@ def dialog_notif(tipe, judul, pesan):
 
 @_dialog("✏️ Edit Nilai")
 def dialog_edit_nilai(peserta_id, peserta_nama, spreadsheet_obj, juri_id):
+    st.markdown(_JURI_CSS, unsafe_allow_html=True)
     df_pen = db_helper.ensure_cols(st.session_state.db_penilaian, "penilaian")
     cur = df_pen[(df_pen["id_juri"].astype(str) == str(juri_id)) &
                  (df_pen["id_peserta"].astype(str) == str(peserta_id))]
