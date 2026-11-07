@@ -168,7 +168,9 @@ def ensure_worksheets(spreadsheet):
                 continue
             row1 = [c.strip() for c in ws.row_values(1)]
             if row1 != header:
-                ws.update(values=[header], range_name="A1")
+                # padding kosong menghapus sisa header lama (mis. sel D1 dari skema 4 kolom)
+                sisa = [""] * max(0, len(row1) - len(header))
+                ws.update(values=[header + sisa], range_name="A1")
         return True
     except Exception as e:
         print(f"Error ensuring worksheets: {e}")
@@ -235,6 +237,8 @@ def sync_data_from_sheets(spreadsheet_obj):
             if len(data) > 1:
                 header = [h.strip() for h in data[0]]
                 df = pd.DataFrame(data[1:], columns=header)
+                df = df.loc[:, [c != "" for c in df.columns]]   # buang kolom tanpa nama
+                df = df.loc[:, ~df.columns.duplicated()]        # buang nama kolom ganda
                 df = df[df.apply(lambda r: any(str(v).strip() for v in r), axis=1)]
                 st.session_state[key] = df.reset_index(drop=True)
             else:
