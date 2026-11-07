@@ -27,8 +27,7 @@ html, body, .stApp, .stApp p, .stApp div, .stApp label, .stApp input,
 /* ================= SEMBUNYIKAN TOOLBAR & HEADER STREAMLIT ================= */
 [data-testid="stHeader"] { 
     background: transparent !important; 
-    display: none !important; 
-    visibility: hidden !important; 
+    z-index: 99999;
 }
 [data-testid="stToolbar"] { 
     display: none !important; 
@@ -46,6 +45,12 @@ section[data-testid="stSidebar"] { border-right: 1px solid %NAVY_2%; }
 section[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
 section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {
     color: %SAND% !important;
+}
+
+/* Memastikan tombol toggle sidebar (hamburger menu) tetap terlihat jelas di HP */
+[data-testid="stSidebarNav"] { display: none; }
+button[kind="header"] {
+    color: %NAVY% !important;
 }
 
 /* ---- Menu = tombol bergaya kartu (tanpa lingkaran radio) ---- */
@@ -117,7 +122,7 @@ section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: .4rem !i
 }
 
 /* ================= FORM = KARTU PUTIH (Kecuali Form Login Admin) ================= */
-[data-testid="stForm"]:not([data-testid*="form_login_admin"]) {
+[data-testid="stForm"]:not(:has(input[aria-label="Username"])) {
     background: #ffffff;
     border: 1px solid %CHAMPAGNE% !important;
     border-radius: 20px;
@@ -125,8 +130,8 @@ section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: .4rem !i
     box-shadow: 0 12px 30px rgba(17, 34, 80, .10);
 }
 
-/* Khusus Form Login Admin agar transparan dan menyatu sempurna di dalam kotak kanan */
-[data-testid="stForm"] {
+/* Khusus Form Login Admin agar transparan dan menyatu rata di dalam kotak kanan */
+[data-testid="stForm"]:has(input[aria-label="Username"]) {
     background: transparent !important;
     border: none !important;
     padding: 0 !important;
