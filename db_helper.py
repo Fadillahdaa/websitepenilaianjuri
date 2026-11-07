@@ -1,7 +1,7 @@
 import os
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import gspread
 import pandas as pd
@@ -17,17 +17,17 @@ SCOPES = [
 ]
 
 # Nama sheet (SEMUA HURUF KECIL) -> header kolom
+# "jenis"  = pilihan dropdown instansi (diisi admin)
+# "juri"   = data juri + instansinya (digabung, tanpa sheet instansi terpisah)
 SCHEMA = {
-    "instansi": ["id_instansi", "nama_instansi", "jenis_instansi"],
     "jenis": ["id_jenis", "nama_jenis"],
-    "juri": ["id_juri", "nama_juri", "id_instansi"],
+    "juri": ["id_juri", "nama_juri", "jenis_instansi", "nama_instansi"],
     "peserta": ["id_peserta", "nama_peserta", "status"],
-    "penilaian": ["id", "id_juri", "id_instansi", "id_peserta",
-                  "k1", "k2", "k3", "k4", "waktu_input", "catatan"],
-    "favorit": ["waktu_input", "id_juri", "id_instansi", "id_peserta"],
+    "penilaian": ["id", "id_juri", "id_peserta",
+                  "k1", "k2", "k3", "k4", "rata_rata", "waktu_input", "catatan"],
+    "favorit": ["waktu_input", "id_juri", "id_peserta"],
 }
 SESSION_KEYS = {
-    "instansi": "db_instansi",
     "jenis": "db_jenis",
     "juri": "db_juri",
     "peserta": "db_peserta",
@@ -37,14 +37,28 @@ SESSION_KEYS = {
 
 SYNC_TTL_DETIK = 15  # jarak minimal antar sync otomatis (hindari rate limit Google)
 
+# ============================ WAKTU INDONESIA (WIB) ============================
+# WIB = UTC+7 dan tidak mengenal DST, jadi offset tetap sudah akurat
+# (tidak perlu paket tzdata di Windows).
+WIB = timezone(timedelta(hours=7))
 
-# ============================ HELPER DATA INSTANSI ============================
-def ensure_instansi_cols(df):
-    """Pastikan df instansi punya kolom lengkap (aman untuk data lama)."""
+
+def now_wib():
+    return datetime.now(WIB)
+
+
+def timestamp_wib():
+    """Format yang ditulis ke Sheet, contoh: 2026-11-07 17:03:25 (WIB)."""
+    return now_wib().strftime("%Y-%m-%d %H:%M:%S")
+
+
+# ============================ HELPER DATA ============================
+def ensure_cols(df, sheet):
+    """Pastikan df punya semua kolom sesuai SCHEMA[sheet] (aman untuk data lama)."""
     if df is None or not isinstance(df, pd.DataFrame):
-        return pd.DataFrame(columns=SCHEMA["instansi"])
+        return pd.DataFrame(columns=SCHEMA[sheet])
     df = df.copy()
-    for col in SCHEMA["instansi"]:
+    for col in SCHEMA[sheet]:
         if col not in df.columns:
             df[col] = ""
     return df
@@ -52,7 +66,7 @@ def ensure_instansi_cols(df):
 
 # ============================ HELPER ID ============================
 def next_id(df, prefix, col):
-    """Buat ID berikutnya, contoh: PST-001, INS-002, JUR-003."""
+    """Buat ID berikutnya, contoh: PST-001, JNS-002, JUR-003."""
     nums = []
     if df is not None and not df.empty and col in df.columns:
         for v in df[col].tolist():
@@ -218,5 +232,5 @@ def get_current_date_indonesia():
     hari = {0: "Senin", 1: "Selasa", 2: "Rabu", 3: "Kamis", 4: "Jumat", 5: "Sabtu", 6: "Minggu"}
     bulan = {1: "Januari", 2: "Februari", 3: "Maret", 4: "April", 5: "Mei", 6: "Juni",
              7: "Juli", 8: "Agustus", 9: "September", 10: "Oktober", 11: "November", 12: "Desember"}
-    now = datetime.now()
+    now = now_wib()
     return f"{hari[now.weekday()]}, {now.day} {bulan[now.month]} {now.year}"

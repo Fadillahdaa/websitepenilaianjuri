@@ -438,13 +438,16 @@ def render_admin_portal():
                         )
                         st.rerun()
 
-        st.markdown("##### Nama Instansi yang Diisi Dewan Juri")
-        df_ins = db_helper.ensure_instansi_cols(st.session_state.db_instansi)
-        if df_ins.empty:
-            st.info("Belum ada juri yang mengisi nama instansi.")
+        st.markdown("##### Dewan Juri yang Sudah Masuk")
+        df_juri = db_helper.ensure_cols(st.session_state.db_juri, "juri")
+        if df_juri.empty:
+            st.info("Belum ada juri yang masuk ke sistem.")
         else:
             st.dataframe(
-                df_ins.rename(columns={"id_instansi": "ID", "nama_instansi": "Nama Instansi", "jenis_instansi": "Jenis"}),
+                df_juri.rename(columns={
+                    "id_juri": "ID", "nama_juri": "Nama Juri",
+                    "jenis_instansi": "Instansi Asal", "nama_instansi": "Nama Instansi",
+                }),
                 use_container_width=True, hide_index=True,
             )
 
@@ -472,12 +475,12 @@ def render_admin_portal():
             st.success("Data berhasil disinkronkan!")
             st.rerun()
 
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["📝 Penilaian", "📁 Peserta", "👥 Juri", "⭐ Favorit", "🏢 Instansi"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["📝 Penilaian", "📁 Peserta", "👥 Juri", "⭐ Favorit", "🏷️ Pilihan Instansi"])
         with tab1: st.dataframe(st.session_state.db_penilaian, use_container_width=True)
         with tab2: st.dataframe(st.session_state.db_peserta, use_container_width=True)
         with tab3: st.dataframe(st.session_state.db_juri, use_container_width=True)
         with tab4: st.dataframe(st.session_state.db_favorit, use_container_width=True)
-        with tab5: st.dataframe(st.session_state.db_instansi, use_container_width=True)
+        with tab5: st.dataframe(st.session_state.db_jenis, use_container_width=True)
 
     st.markdown("""
         <div style="text-align: center; margin-top: 40px; padding: 15px; color: #6B7280; font-size: 0.75rem;">

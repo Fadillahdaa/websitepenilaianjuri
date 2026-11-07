@@ -1,16 +1,229 @@
+import time
+import uuid
+
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 import db_helper
 import styles
 
+_dialog = getattr(st, "dialog", None) or getattr(st, "experimental_dialog", None)
+if _dialog is None:
+    raise RuntimeError("Fitur popup butuh Streamlit >= 1.34. Jalankan: pip install -U streamlit")
 
+# Setelah menekan OK pada popup "berhasil", juri dikembalikan ke halaman utama (Dashboard).
+# Ubah ke False bila ingin tetap berada di halaman yang sedang dibuka.
+KEMBALI_KE_DASHBOARD = True
+MENU_DASHBOARD = "🏠 Dashboard"
+
+KRITERIA = [
+    "1. Riset & Relevansi Industri",
+    "2. Inovasi & Kualitas Solusi",
+    "3. Pemanfaatan & Etika AI",
+    "4. Presentasi & Komunikasi",
+]
+
+_JURI_CSS = """
+<style>
+    [data-testid="stDialog"] h1, [data-testid="stDialog"] h2,
+    [data-testid="stDialog"] h3, [data-testid="stDialog"] h4,
+    [data-testid="stDialog"] p, [data-testid="stDialog"] label p,
+    [data-testid="stDialog"] li { color: #112250 !important; }
+    [data-testid="stDialog"] .stButton > button {
+        background-color: #112250 !important; color: #ffffff !important;
+        border: none !important; border-radius: 10px !important;
+        font-weight: 700 !important; width: 100% !important; padding: 10px 20px !important;
+    }
+    [data-testid="stDialog"] .stButton > button:hover {
+        background-color: #1a3375 !important; color: #3BF07D !important;
+    }
+</style>
+"""
+
+
+# ============================ HELPER ============================
+def _auth_kosong():
+    return {"is_logged_in": False, "id_juri": "", "nama": "", "jenis": "", "instansi": ""}
+
+
+def _ke_int(v, default=80):
+    try:
+        return max(0, min(100, int(float(v))))
+    except (ValueError, TypeError):
+        return default
+
+
+def _hitung_rata(row):
+    """Rata-rata = jumlah seluruh nilai / jumlah kriteria (4)."""
+    vals = []
+    for i in range(1, 5):
+        v = pd.to_numeric(row.get(f"k{i}"), errors="coerce")
+        vals.append(0 if pd.isna(v) else v)
+    return round(sum(vals) / len(KRITERIA), 2)
+
+
+def _input_nilai(prefix, defaults):
+    """Input 4 kriteria (batas keras 0-100) + kartu rata-rata yang langsung berubah."""
+    skor = []
+    for i, (label, d) in enumerate(zip(KRITERIA, defaults), start=1):
+        skor.append(int(st.number_input(
+            f"{label} (60 - 100)",
+            min_value=0, max_value=100, value=d, step=1, key=f"{prefix}_k{i}",
+        )))
+    total = sum(skor)
+    rata = round(total / len(KRITERIA), 2)
+    st.markdown(f"""
+        <div style="background: white; border: 2px solid #3B507D; border-radius: 12px; padding: 14px; margin: 12px 0; text-align: center;">
+            <div style="color: #6B7280; font-size: 0.82rem; font-weight: 600;">
+                Total nilai {total} ÷ {len(KRITERIA)} kriteria
+            </div>
+            <div style="margin-top: 4px;">
+                <span style="color: #6B7280; font-weight: 600;">Rata-rata / Skor Akhir:</span>
+                <span style="font-size: 1.7rem; font-weight: 800; color: #112250; margin-left: 10px;">{rata:.2f}</span>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    return skor, total, rata
+
+
+def _simpan_nilai(spreadsheet_obj, juri_id, peserta_id, skor, catatan):
+    """Simpan baru / perbarui penilaian (aplikasi + Sheet). Return dict hasil."""
+    total = sum(skor)
+    rata = round(total / len(skor), 2)
+    ts = db_helper.timestamp_wib()
+
+    df_pen = db_helper.ensure_cols(st.session_state.db_penilaian, "penilaian")
+    mask_lama = ((df_pen["id_juri"].astype(str) == str(juri_id)) &
+                 (df_pen["id_peserta"].astype(str) == str(peserta_id)))
+    id_lama = str(df_pen[mask_lama]["id"].iloc[-1]) if mask_lama.any() else ""
+    penilaian_id = id_lama or f"PEN-{int(time.time())}-{uuid.uuid4().hex[:4]}"
+
+    baris = [penilaian_id, juri_id, peserta_id, *skor, rata, ts, catatan]
+    row_dict = dict(zip(db_helper.SCHEMA["penilaian"], baris))
+    st.session_state.db_penilaian = pd.concat(
+        [df_pen[~mask_lama], pd.DataFrame([row_dict])], ignore_index=True
+    )
+
+    gagal, detail = False, ""
+    if spreadsheet_obj:
+        try:
+            ws = db_helper.get_ws(spreadsheet_obj, "penilaian")
+            semua = ws.get_all_values()
+            baris_lama = [
+                i for i, r in enumerate(semua[1:], start=2)
+                if len(r) > 2 and r[1] == str(juri_id) and r[2] == str(peserta_id)
+            ]
+            if baris_lama:
+                ws.update(values=[baris], range_name=f"A{baris_lama[0]}")
+                for n in sorted(baris_lama[1:], reverse=True):
+                    ws.delete_rows(n)
+            else:
+                ws.append_row(baris, value_input_option="USER_ENTERED")
+        except Exception as e:
+            gagal, detail = True, f"{type(e).__name__}: {e}"
+            print(f"Gagal simpan penilaian ke Sheet: {detail}")
+    else:
+        gagal, detail = True, "Koneksi ke Google Sheet tidak tersedia."
+
+    return {"total": total, "rata": rata, "waktu": ts, "gagal": gagal, "detail": detail}
+
+
+def _simpan_favorit(spreadsheet_obj, juri_id, peserta_id):
+    """Satu juri = satu favorit. Ganti pilihan lama bila ada. Return (gagal, detail)."""
+    ts = db_helper.timestamp_wib()
+    df_fav = db_helper.ensure_cols(st.session_state.db_favorit, "favorit")
+    df_fav = df_fav[df_fav["id_juri"].astype(str) != str(juri_id)]
+    baris = [ts, juri_id, peserta_id]
+    st.session_state.db_favorit = pd.concat(
+        [df_fav, pd.DataFrame([dict(zip(db_helper.SCHEMA["favorit"], baris))])], ignore_index=True
+    )
+
+    if not spreadsheet_obj:
+        return True, "Koneksi ke Google Sheet tidak tersedia."
+    try:
+        # get_ws tidak peduli huruf besar/kecil (tab di Sheet bernama "Favorit")
+        ws = db_helper.get_ws(spreadsheet_obj, "favorit")
+        semua = ws.get_all_values()
+        baris_lama = [
+            i for i, r in enumerate(semua[1:], start=2)
+            if len(r) > 1 and r[1] == str(juri_id)
+        ]
+        if baris_lama:
+            ws.update(values=[baris], range_name=f"A{baris_lama[0]}")
+            for n in sorted(baris_lama[1:], reverse=True):
+                ws.delete_rows(n)
+        else:
+            ws.append_row(baris, value_input_option="USER_ENTERED")
+        return False, ""
+    except Exception as e:
+        detail = f"{type(e).__name__}: {e}"
+        print(f"Gagal simpan favorit ke Sheet: {detail}")
+        return True, detail
+
+
+def _popup(tipe, judul, pesan):
+    st.session_state["popup"] = {"tipe": tipe, "judul": judul, "pesan": pesan}
+
+
+def _popup_nilai(nama, hasil, diperbarui):
+    aksi = "diperbarui" if diperbarui else "disimpan"
+    if hasil["gagal"]:
+        _popup("warning", "Belum masuk ke database",
+               f"Nilai untuk **{nama}** {aksi} di aplikasi, tetapi **gagal ditulis ke Google Sheet**.\n\n`{hasil['detail']}`")
+    else:
+        _popup("success", f"Nilai berhasil {aksi}",
+               f"Nilai untuk **{nama}** berhasil {aksi}.\n\n"
+               f"- Total nilai: **{hasil['total']}**\n"
+               f"- Rata-rata (skor akhir): **{hasil['rata']:.2f}**\n"
+               f"- Waktu input: {hasil['waktu']} WIB")
+
+
+# ============================ POPUP ============================
+@_dialog("🔔 Notifikasi")
+def dialog_notif(tipe, judul, pesan):
+    ikon = {"success": "✅", "warning": "⚠️", "error": "❌"}.get(tipe, "ℹ️")
+    st.markdown(f"### {ikon} {judul}")
+    st.markdown(pesan)
+    if st.button("OK", key="notif_ok"):
+        if KEMBALI_KE_DASHBOARD and tipe == "success":
+            st.session_state["menu_juri_state"] = MENU_DASHBOARD
+        st.rerun()
+
+
+@_dialog("✏️ Edit Nilai")
+def dialog_edit_nilai(peserta_id, peserta_nama, spreadsheet_obj, juri_id):
+    df_pen = db_helper.ensure_cols(st.session_state.db_penilaian, "penilaian")
+    cur = df_pen[(df_pen["id_juri"].astype(str) == str(juri_id)) &
+                 (df_pen["id_peserta"].astype(str) == str(peserta_id))]
+    if cur.empty:
+        st.error("Data penilaian tidak ditemukan.")
+        return
+    prev = cur.iloc[-1]
+
+    st.markdown(f"#### {peserta_nama}")
+    skor, total, rata = _input_nilai(
+        f"edit_{peserta_id}", [_ke_int(prev.get(f"k{i}")) for i in range(1, 5)]
+    )
+    catatan = st.text_area(
+        "Catatan Juri (opsional)", value=str(prev.get("catatan", "") or ""),
+        max_chars=500, key=f"edit_catatan_{peserta_id}",
+    )
+
+    if st.button("💾 Simpan Perubahan", key=f"edit_simpan_{peserta_id}"):
+        if not all(0 <= s <= 100 for s in skor):
+            st.error("Nilai harus berada pada rentang 0 - 100.")
+        else:
+            hasil = _simpan_nilai(spreadsheet_obj, juri_id, peserta_id, skor, catatan.strip())
+            _popup_nilai(peserta_nama, hasil, diperbarui=True)
+            st.rerun()
+
+
+# ============================ HALAMAN JURI ============================
 def render_juri_portal():
     spreadsheet_obj, conn_err = db_helper.auto_connect_and_sync()
     tanggal_format = db_helper.get_current_date_indonesia()
 
     if "juri_auth" not in st.session_state:
-        st.session_state.juri_auth = {"is_logged_in": False, "id_juri": "", "nama": "", "id_instansi": ""}
+        st.session_state.juri_auth = _auth_kosong()
 
     styles.inject(dark_stage=not st.session_state.juri_auth["is_logged_in"])
 
@@ -127,11 +340,8 @@ def render_juri_portal():
 
         with col_form:
             # Pilihan dropdown diisi oleh admin (sheet "jenis")
-            df_jenis = st.session_state.get("db_jenis", pd.DataFrame(columns=["id_jenis", "nama_jenis"]))
-            if df_jenis is not None and not df_jenis.empty and "nama_jenis" in df_jenis.columns:
-                daftar_jenis = sorted({str(x).strip() for x in df_jenis["nama_jenis"] if str(x).strip()})
-            else:
-                daftar_jenis = []
+            df_jenis = db_helper.ensure_cols(st.session_state.get("db_jenis"), "jenis")
+            daftar_jenis = sorted({str(x).strip() for x in df_jenis["nama_jenis"] if str(x).strip()})
             PLACEHOLDER = "-- Pilih Instansi dari Daftar --"
 
             with st.form("form_login_juri"):
@@ -142,17 +352,10 @@ def render_juri_portal():
                     </div>
                 """, unsafe_allow_html=True)
 
-                input_nama_juri = st.text_input(
-                    "Nama Lengkap*",
-                    placeholder="Contoh: Ahmad Subarjo"
-                )
-                jenis_dipilih = st.selectbox(
-                    "Pilih Instansi Asal*",
-                    options=[PLACEHOLDER] + daftar_jenis
-                )
+                input_nama_juri = st.text_input("Nama Lengkap*", placeholder="Contoh: Ahmad Subarjo")
+                jenis_dipilih = st.selectbox("Pilih Instansi Asal*", options=[PLACEHOLDER] + daftar_jenis)
                 nama_instansi_input = st.text_input(
-                    "Nama Instansi*",
-                    placeholder="Contoh: Dinas Pendidikan Kota Madiun"
+                    "Nama Instansi*", placeholder="Contoh: Dinas Pendidikan Kota Madiun"
                 )
 
                 if not daftar_jenis:
@@ -180,54 +383,30 @@ def render_juri_portal():
                     elif not instansi_nama:
                         st.error("Nama instansi wajib diisi!")
                     else:
-                        # ---- Instansi (cocokkan jenis + nama, buat baru bila belum ada) ----
-                        df_ins = db_helper.ensure_instansi_cols(st.session_state.db_instansi)
-                        matched_ins = df_ins[
-                            (df_ins["jenis_instansi"].astype(str).str.lower() == jenis_dipilih.lower())
-                            & (df_ins["nama_instansi"].astype(str).str.lower() == instansi_nama.lower())
+                        # Juri dikenali dari kombinasi nama + instansi asal + nama instansi
+                        df_juri = db_helper.ensure_cols(st.session_state.db_juri, "juri")
+                        existing = df_juri[
+                            (df_juri["nama_juri"].astype(str).str.lower() == nama_final.lower())
+                            & (df_juri["jenis_instansi"].astype(str).str.lower() == jenis_dipilih.lower())
+                            & (df_juri["nama_instansi"].astype(str).str.lower() == instansi_nama.lower())
                         ]
-                        if not matched_ins.empty:
-                            instansi_id_final = matched_ins.iloc[0]["id_instansi"]
-                        else:
-                            instansi_id_final = db_helper.next_id(df_ins, "INS", "id_instansi")
-                            new_ins_row = {
-                                "id_instansi": instansi_id_final,
-                                "nama_instansi": instansi_nama,
-                                "jenis_instansi": jenis_dipilih,
-                            }
-                            st.session_state.db_instansi = pd.concat(
-                                [df_ins, pd.DataFrame([new_ins_row])], ignore_index=True
-                            )
-                            ok, serr = db_helper.safe_append(
-                                spreadsheet_obj, "instansi", [instansi_id_final, instansi_nama, jenis_dipilih]
-                            )
-                            if not ok:
-                                st.warning(f"Instansi baru gagal ditulis ke Google Sheet: {serr}")
 
-                        # ---- Juri (cocokkan nama + instansi, bukan nama saja) ----
-                        df_juri = st.session_state.db_juri
-                        if not df_juri.empty:
-                            existing_juri = df_juri[
-                                (df_juri["nama_juri"].str.lower() == nama_final.lower())
-                                & (df_juri["id_instansi"].astype(str) == str(instansi_id_final))
-                            ]
-                        else:
-                            existing_juri = df_juri
-
-                        if not existing_juri.empty:
-                            juri_id_final = existing_juri.iloc[0]["id_juri"]
+                        if not existing.empty:
+                            juri_id_final = existing.iloc[0]["id_juri"]
                         else:
                             juri_id_final = db_helper.next_id(df_juri, "JUR", "id_juri")
-                            new_juri_row = {
+                            new_row = {
                                 "id_juri": juri_id_final,
                                 "nama_juri": nama_final,
-                                "id_instansi": instansi_id_final,
+                                "jenis_instansi": jenis_dipilih,
+                                "nama_instansi": instansi_nama,
                             }
                             st.session_state.db_juri = pd.concat(
-                                [df_juri, pd.DataFrame([new_juri_row])], ignore_index=True
+                                [df_juri, pd.DataFrame([new_row])], ignore_index=True
                             )
                             ok, serr = db_helper.safe_append(
-                                spreadsheet_obj, "juri", [juri_id_final, nama_final, instansi_id_final]
+                                spreadsheet_obj, "juri",
+                                [juri_id_final, nama_final, jenis_dipilih, instansi_nama]
                             )
                             if not ok:
                                 st.warning(f"Data juri gagal ditulis ke Google Sheet: {serr}")
@@ -236,59 +415,50 @@ def render_juri_portal():
                             "is_logged_in": True,
                             "id_juri": juri_id_final,
                             "nama": nama_final,
-                            "id_instansi": instansi_id_final
+                            "jenis": jenis_dipilih,
+                            "instansi": instansi_nama,
                         }
+                        st.session_state["menu_juri_state"] = MENU_DASHBOARD
                         st.rerun()
 
     # ==============================================================================
     # 2. DASHBOARD & MENU UTAMA JURI SETELAH LOGIN
     # ==============================================================================
     else:
-        juri_id_aktif = st.session_state.juri_auth["id_juri"]
-        nama_juri_aktif = st.session_state.juri_auth["nama"]
-        instansi_id_aktif = st.session_state.juri_auth["id_instansi"]
+        st.markdown(_JURI_CSS, unsafe_allow_html=True)
 
-        instansi_nama_aktif = instansi_id_aktif
-        if not st.session_state.db_instansi.empty:
-            m_ins = st.session_state.db_instansi[
-                st.session_state.db_instansi['id_instansi'].astype(str) == str(instansi_id_aktif)
-            ]
-            if not m_ins.empty:
-                jenis_aktif = str(m_ins.iloc[0].get('jenis_instansi', '') or '').strip()
-                nama_aktif = m_ins.iloc[0]['nama_instansi']
-                instansi_nama_aktif = f"{jenis_aktif} · {nama_aktif}" if jenis_aktif else nama_aktif
+        auth = st.session_state.juri_auth
+        juri_id_aktif = auth["id_juri"]
+        nama_juri_aktif = auth["nama"]
+        instansi_label = f"{auth['jenis']} · {auth['instansi']}" if auth.get("jenis") else auth.get("instansi", "")
+
+        df_pen_all = db_helper.ensure_cols(st.session_state.db_penilaian, "penilaian")
+        df_pen_saya = df_pen_all[df_pen_all["id_juri"].astype(str) == str(juri_id_aktif)]
 
         total_peserta_count = len(st.session_state.db_peserta)
-
-        dinilai_juri_ini = 0
-        if not st.session_state.db_penilaian.empty:
-            df_p_juri = st.session_state.db_penilaian[
-                st.session_state.db_penilaian['id_juri'].astype(str) == str(juri_id_aktif)
-            ]
-            dinilai_juri_ini = df_p_juri['id_peserta'].nunique() if 'id_peserta' in df_p_juri.columns else len(df_p_juri)
-
+        dinilai_juri_ini = df_pen_saya["id_peserta"].nunique() if not df_pen_saya.empty else 0
         sisa_peserta = max(0, total_peserta_count - dinilai_juri_ini)
-        persen_progress = int((dinilai_juri_ini / total_peserta_count * 100)) if total_peserta_count > 0 else 0
+        persen_progress = int(dinilai_juri_ini / total_peserta_count * 100) if total_peserta_count > 0 else 0
 
         with st.sidebar:
             st.markdown(f"""
                 <div style="background: white; border: 1px solid #E7E2CE; border-radius: 12px; padding: 16px; margin-bottom: 20px; text-align: center; color: #112250;">
                     <div style="font-size: 32px;">👨‍⚖️</div>
                     <div style="font-weight: 800; font-size: 1.05rem; color: #112250; margin-top: 4px;">{nama_juri_aktif}</div>
-                    <div style="font-size: 0.82rem; color: #6B7280; font-weight: 600;">{instansi_nama_aktif}</div>
+                    <div style="font-size: 0.82rem; color: #6B7280; font-weight: 600;">{instansi_label}</div>
                 </div>
             """, unsafe_allow_html=True)
 
             menu_juri = styles.sidebar_menu(
-                ["🏠 Dashboard", "📝 Penilaian Peserta", "⭐ Peserta Favorit",
+                [MENU_DASHBOARD, "📝 Penilaian Peserta", "⭐ Peserta Favorit",
                  "📋 Riwayat Penilaian", "🚪 Logout"],
                 key="menu_juri_state",
                 divider_before="🚪 Logout",
             )
 
             if menu_juri == "🚪 Logout":
-                st.session_state.juri_auth = {"is_logged_in": False, "id_juri": "", "nama": "", "id_instansi": ""}
-                st.session_state["menu_juri_state"] = "🏠 Dashboard"
+                st.session_state.juri_auth = _auth_kosong()
+                st.session_state["menu_juri_state"] = MENU_DASHBOARD
                 st.rerun()
 
         st.markdown(f"""
@@ -306,8 +476,13 @@ def render_juri_portal():
         if conn_err:
             st.error(f"❌ Google Sheet bermasalah: {conn_err}")
 
+        # Popup notifikasi (dibuka sekali, lalu dihapus dari session)
+        popup = st.session_state.pop("popup", None)
+        if popup:
+            dialog_notif(popup["tipe"], popup["judul"], popup["pesan"])
+
         # ---------------- DASHBOARD ----------------
-        if menu_juri == "🏠 Dashboard":
+        if menu_juri == MENU_DASHBOARD:
             st.markdown("### 🏠 Dashboard Penilaian")
 
             c_m1, c_m2, c_m3 = st.columns(3)
@@ -350,218 +525,136 @@ def render_juri_portal():
         # ---------------- PENILAIAN PESERTA ----------------
         elif menu_juri == "📝 Penilaian Peserta":
             st.markdown("### 📝 Form Penilaian Karya Peserta")
-            st.markdown("<p style='color: #666; font-size: 0.9rem;'>Berikan nilai pada peserta sesuai 4 kriteria yang telah ditentukan (rentang nilai 0 - 100).</p>", unsafe_allow_html=True)
+            st.markdown("<p style='color: #666; font-size: 0.9rem;'>Berikan nilai pada setiap kriteria dengan rentang 60 - 100. Rata-rata dihitung dari jumlah seluruh nilai dibagi jumlah kriteria.</p>", unsafe_allow_html=True)
 
-            if "flash_nilai" in st.session_state:
-                tipe, pesan = st.session_state.pop("flash_nilai")
-                (st.success if tipe == "success" else st.warning)(pesan)
-
-            if st.session_state.db_peserta.empty:
+            df_peserta = st.session_state.db_peserta
+            if df_peserta.empty:
                 st.warning("⚠️ Belum ada data peserta yang dimasukkan oleh Administrator.")
             else:
-                df_peserta = st.session_state.db_peserta
+                sudah_dinilai = set(df_pen_saya["id_peserta"].astype(str))
 
-                sudah_dinilai_id_list = []
-                if not st.session_state.db_penilaian.empty:
-                    df_p_j = st.session_state.db_penilaian[
-                        st.session_state.db_penilaian['id_juri'].astype(str) == str(juri_id_aktif)
-                    ]
-                    if 'id_peserta' in df_p_j.columns:
-                        sudah_dinilai_id_list = df_p_j['id_peserta'].tolist()
+                label_map = {}
+                for _, row in df_peserta.iterrows():
+                    pid = row["id_peserta"]
+                    status = "✅ (Sudah Dinilai)" if str(pid) in sudah_dinilai else "⏳ (Belum Dinilai)"
+                    label_map[pid] = f"{row['nama_peserta']} [{pid}] {status}"
 
-                opsi_peserta = []
-                map_label_ke_id = {}
-                for idx, row in df_peserta.iterrows():
-                    p_id = row['id_peserta']
-                    p_nama = row['nama_peserta']
-                    status_icon = "✅ (Sudah Dinilai)" if p_id in sudah_dinilai_id_list else "⏳ (Belum Dinilai)"
-                    label_display = f"{p_nama} [{p_id}] {status_icon}"
-                    opsi_peserta.append(label_display)
-                    map_label_ke_id[label_display] = p_id
-
-                selected_label = st.selectbox("Pilih Peserta:", options=opsi_peserta)
-                peserta_id_terpilih = map_label_ke_id[selected_label]
-
-                info_p = df_peserta[df_peserta['id_peserta'] == peserta_id_terpilih].iloc[0]
-                peserta_nama_terpilih = info_p['nama_peserta']
+                # Opsi memakai ID (stabil) agar pilihan tidak loncat ke atas setelah menyimpan
+                peserta_id = st.selectbox(
+                    "Pilih Peserta:", options=list(label_map.keys()),
+                    format_func=lambda x: label_map[x],
+                )
+                peserta_nama = df_peserta.loc[df_peserta["id_peserta"] == peserta_id, "nama_peserta"].iloc[0]
 
                 st.markdown(f"""
                     <div style="padding-top: 10px;">
                         <span style="background: #112250; color: #3BF07D; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase;">Kandidat Terpilih</span>
-                        <h2 style="color: #112250; margin: 10px 0 4px 0;">{peserta_nama_terpilih}</h2>
-                        <p style="color: #666; font-size: 0.9rem;">ID Peserta: <b>{peserta_id_terpilih}</b></p>
+                        <h2 style="color: #112250; margin: 10px 0 4px 0;">{peserta_nama}</h2>
+                        <p style="color: #666; font-size: 0.9rem;">ID Peserta: <b>{peserta_id}</b></p>
                     </div>
                 """, unsafe_allow_html=True)
 
                 default_scores = [80] * 4
                 default_catatan = ""
-                if peserta_id_terpilih in sudah_dinilai_id_list:
-                    prev_row = st.session_state.db_penilaian[
-                        (st.session_state.db_penilaian['id_juri'].astype(str) == str(juri_id_aktif)) &
-                        (st.session_state.db_penilaian['id_peserta'].astype(str) == str(peserta_id_terpilih))
-                    ].iloc[-1]
-                    default_scores = []
-                    for i in range(1, 5):
-                        try:
-                            default_scores.append(int(float(prev_row.get(f'k{i}', 80))))
-                        except (ValueError, TypeError):
-                            default_scores.append(80)
-                    default_catatan = str(prev_row.get('catatan', '') or '')
-                    st.info("ℹ️ Anda sudah pernah menilai peserta ini. Mengirim nilai baru akan memperbarui penilaian Anda.")
+                sudah_pernah = str(peserta_id) in sudah_dinilai
+                if sudah_pernah:
+                    prev = df_pen_saya[df_pen_saya["id_peserta"].astype(str) == str(peserta_id)].iloc[-1]
+                    default_scores = [_ke_int(prev.get(f"k{i}")) for i in range(1, 5)]
+                    default_catatan = str(prev.get("catatan", "") or "")
+                    st.info("ℹ️ Anda sudah pernah menilai peserta ini. Menyimpan lagi akan memperbarui nilai Anda.")
 
-                st.markdown("<br><h4>4 Kriteria Penilaian (Skala 0 - 100)</h4>", unsafe_allow_html=True)
-                with st.form("form_skor_juri_4_kriteria"):
-                    k1 = st.number_input("1. Riset & Relevansi Industri", 0, 100, default_scores[0])
-                    k2 = st.number_input("2. Inovasi & Kualitas Solusi", 0, 100, default_scores[1])
-                    k3 = st.number_input("3. Pemanfaatan & Etika AI", 0, 100, default_scores[2])
-                    k4 = st.number_input("4. Presentasi & Komunikasi", 0, 100, default_scores[3])
-
+                st.markdown("<h4 style='margin-top: 14px;'>4 Kriteria Penilaian (Rentang 60 - 100)</h4>", unsafe_allow_html=True)
+                with st.container(border=True):
+                    skor, total, rata = _input_nilai(f"nilai_{peserta_id}", default_scores)
                     catatan = st.text_area(
                         "Catatan Juri (opsional)",
                         value=default_catatan,
                         placeholder="Tulis komentar atau masukan untuk peserta ini...",
                         max_chars=500,
-                        key=f"catatan_{peserta_id_terpilih}",
+                        key=f"catatan_{peserta_id}",
                     )
 
-                    scores = [k1, k2, k3, k4]
-                    avg_val = round(sum(scores) / len(scores), 2)
-
-                    st.markdown(f"""
-                        <div style="background: white; border: 2px solid #3B507D; border-radius: 12px; padding: 14px; margin: 15px 0; text-align: center;">
-                            <span style="color: #BEB7A7; font-weight: 600;">Rata-rata Skor Keseluruhan:</span>
-                            <span style="font-size: 1.6rem; font-weight: 800; color: #112250; margin-left: 12px;">{avg_val}</span>
-                        </div>
-                    """, unsafe_allow_html=True)
-
-                    if st.form_submit_button("💾 Simpan Nilai ➔"):
-                        ts_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        penilaian_id = f"PEN-{int(datetime.now().timestamp())}"
-
-                        new_penilaian = {
-                            "id": penilaian_id,
-                            "id_juri": juri_id_aktif,
-                            "id_instansi": instansi_id_aktif,
-                            "id_peserta": peserta_id_terpilih,
-                            "k1": k1, "k2": k2, "k3": k3, "k4": k4,
-                            "waktu_input": ts_now,
-                            "catatan": catatan.strip()
-                        }
-
-                        df_pen = st.session_state.db_penilaian
-                        if not df_pen.empty:
-                            mask = ~((df_pen['id_juri'].astype(str) == str(juri_id_aktif)) &
-                                     (df_pen['id_peserta'].astype(str) == str(peserta_id_terpilih)))
-                            st.session_state.db_penilaian = df_pen[mask]
-
-                        st.session_state.db_penilaian = pd.concat(
-                            [st.session_state.db_penilaian, pd.DataFrame([new_penilaian])], ignore_index=True
-                        )
-
-                        gagal_sheet = False
-                        detail_error = ""
-                        if spreadsheet_obj:
-                            try:
-                                ws_pen = db_helper.get_ws(spreadsheet_obj, "penilaian")
-
-                                semua = ws_pen.get_all_values()
-                                baris_lama = [
-                                    i for i, r in enumerate(semua[1:], start=2)
-                                    if len(r) > 3 and r[1] == str(juri_id_aktif) and r[3] == str(peserta_id_terpilih)
-                                ]
-                                for nomor in sorted(baris_lama, reverse=True):
-                                    ws_pen.delete_rows(nomor)
-
-                                ws_pen.append_row([
-                                    penilaian_id, juri_id_aktif, instansi_id_aktif, peserta_id_terpilih,
-                                    k1, k2, k3, k4, ts_now, catatan.strip()
-                                ])
-                            except Exception as e:
-                                gagal_sheet = True
-                                detail_error = f"{type(e).__name__}: {e}"
-                                print(f"Gagal simpan penilaian ke Sheet: {detail_error}")
+                    if st.button("💾 Simpan Nilai ➔", key=f"simpan_nilai_{peserta_id}"):
+                        if not all(0 <= s <= 100 for s in skor):
+                            st.error("Nilai harus berada pada rentang 0 - 100.")
                         else:
-                            gagal_sheet = True
-                            detail_error = "Koneksi ke Google Sheet tidak tersedia."
-
-                        if gagal_sheet:
-                            st.session_state["flash_nilai"] = (
-                                "warning",
-                                f"Nilai tersimpan di aplikasi, tetapi gagal menulis ke Google Sheet. ({detail_error})"
-                            )
-                        else:
-                            st.session_state["flash_nilai"] = (
-                                "success",
-                                f"🎉 Nilai untuk **{peserta_nama_terpilih}** berhasil disimpan! Rata-rata: **{avg_val}**"
-                            )
-                        st.rerun()
+                            hasil = _simpan_nilai(spreadsheet_obj, juri_id_aktif, peserta_id, skor, catatan.strip())
+                            _popup_nilai(peserta_nama, hasil, diperbarui=sudah_pernah)
+                            st.rerun()
 
         # ---------------- PESERTA FAVORIT ----------------
         elif menu_juri == "⭐ Peserta Favorit":
             st.markdown("### ⭐ Peserta Favorit Pilihan Anda")
             st.markdown("<p style='color: #666; font-size: 0.9rem;'>Pilih 1 peserta favorit Anda dari daftar berikut. Pilihan ini akan menjadi bagian dari hasil akhir penilaian.</p>", unsafe_allow_html=True)
-            
-            if not st.session_state.db_peserta.empty:
-                df_peserta = st.session_state.db_peserta
-                current_fav_id = None
-                if not st.session_state.db_favorit.empty:
-                    df_fav_juri = st.session_state.db_favorit[st.session_state.db_favorit['id_juri'].astype(str) == str(juri_id_aktif)]
-                    if not df_fav_juri.empty and 'id_peserta' in df_fav_juri.columns:
-                        current_fav_id = df_fav_juri.iloc[-1]['id_peserta']
 
-                list_id_peserta = df_peserta['id_peserta'].tolist()
-                idx_def = list_id_peserta.index(current_fav_id) if current_fav_id in list_id_peserta else 0
-                
-                opsi_peserta_list = (df_peserta['nama_peserta'] + " [" + df_peserta['id_peserta'] + "]").tolist()
-                
-                with st.form("form_voting_favorit"):
-                    selected_fav_label = st.radio(
-                        "Daftar Kandidat Peserta:",
-                        options=opsi_peserta_list,
-                        index=idx_def
-                    )
-                    
-                    pilih_fav_id = selected_fav_label.split("[")[-1].replace("]", "").strip()
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    
-                    if st.form_submit_button("⭐ Simpan Pilihan Favorit"):
-                        ts_fav = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        new_fav = {
-                            "waktu_input": ts_fav,
-                            "id_juri": juri_id_aktif,
-                            "id_instansi": instansi_id_aktif,
-                            "id_peserta": pilih_fav_id
-                        }
-                        
-                        df_fav = st.session_state.db_favorit
-                        if not df_fav.empty:
-                            st.session_state.db_favorit = df_fav[df_fav['id_juri'].astype(str) != str(juri_id_aktif)]
-                            
-                        st.session_state.db_favorit = pd.concat([st.session_state.db_favorit, pd.DataFrame([new_fav])], ignore_index=True)
-                        
-                        if spreadsheet_obj:
-                            try:
-                                spreadsheet_obj.worksheet("favorit").append_row([ts_fav, juri_id_aktif, instansi_id_aktif, pilih_fav_id])
-                            except Exception:
-                                pass
-                                
-                        st.success("Pilihan peserta favorit berhasil disimpan!")
-                        st.rerun()
-            else:
+            df_peserta = st.session_state.db_peserta
+            if df_peserta.empty:
                 st.warning("⚠️ Belum ada data peserta yang tersedia.")
-        # ---------------- RIWAYAT ----------------
+            else:
+                df_fav = db_helper.ensure_cols(st.session_state.db_favorit, "favorit")
+                fav_saya = df_fav[df_fav["id_juri"].astype(str) == str(juri_id_aktif)]
+                current_fav_id = fav_saya.iloc[-1]["id_peserta"] if not fav_saya.empty else None
+
+                list_id = df_peserta["id_peserta"].tolist()
+                label_map = {
+                    row["id_peserta"]: f"{row['nama_peserta']} [{row['id_peserta']}]"
+                    for _, row in df_peserta.iterrows()
+                }
+                idx_def = list_id.index(current_fav_id) if current_fav_id in list_id else 0
+
+                if current_fav_id in label_map:
+                    st.info(f"Favorit Anda saat ini: **{label_map[current_fav_id]}**")
+
+                with st.form("form_voting_favorit"):
+                    pilih_fav_id = st.radio(
+                        "Daftar Kandidat Peserta:",
+                        options=list_id,
+                        index=idx_def,
+                        format_func=lambda x: label_map[x],
+                    )
+                    st.markdown("<br>", unsafe_allow_html=True)
+
+                    if st.form_submit_button("⭐ Simpan Pilihan Favorit"):
+                        gagal, detail = _simpan_favorit(spreadsheet_obj, juri_id_aktif, pilih_fav_id)
+                        if gagal:
+                            _popup("warning", "Belum masuk ke database",
+                                   f"Pilihan favorit tersimpan di aplikasi, tetapi **gagal ditulis ke Google Sheet**.\n\n`{detail}`")
+                        else:
+                            _popup("success", "Favorit berhasil disimpan",
+                                   f"Peserta favorit Anda: **{label_map[pilih_fav_id]}**.")
+                        st.rerun()
+
+        # ---------------- RIWAYAT + EDIT NILAI ----------------
         elif menu_juri == "📋 Riwayat Penilaian":
             st.markdown(f"### 📋 Riwayat Penilaian oleh {nama_juri_aktif}")
-            if not st.session_state.db_penilaian.empty:
-                df_my = st.session_state.db_penilaian[
-                    st.session_state.db_penilaian['id_juri'].astype(str) == str(juri_id_aktif)
-                ]
-                if not df_my.empty:
-                    st.dataframe(df_my, use_container_width=True)
-                else:
-                    st.info("Anda belum menilai peserta manapun.")
+            st.caption("Klik **Edit** untuk mengubah nilai yang sudah Anda kirim.")
+
+            if df_pen_saya.empty:
+                st.info("Anda belum menilai peserta manapun.")
             else:
-                st.info("Belum ada data nilai tersimpan.")
+                df_peserta = st.session_state.db_peserta
+                nama_map = dict(zip(df_peserta["id_peserta"].astype(str), df_peserta["nama_peserta"]))
+
+                lebar = [0.4, 2.6, 0.7, 0.7, 0.7, 0.7, 1.0, 1.0]
+                head = st.columns(lebar, vertical_alignment="center")
+                for kolom, judul in zip(head, ["No", "Peserta", "K1", "K2", "K3", "K4", "Rata-rata", ""]):
+                    kolom.markdown(f"**{judul}**" if judul else "")
+
+                for no, (_, r) in enumerate(df_pen_saya.iterrows(), start=1):
+                    pid = str(r["id_peserta"])
+                    nama_p = nama_map.get(pid, pid)
+                    with st.container(border=True):
+                        c = st.columns(lebar, vertical_alignment="center")
+                        c[0].write(no)
+                        c[1].markdown(
+                            f"**{nama_p}**  \n<span style='color:#6B7280; font-size:.78rem;'>{r['waktu_input']} WIB</span>",
+                            unsafe_allow_html=True,
+                        )
+                        for i in range(1, 5):
+                            c[1 + i].write(r.get(f"k{i}", "-"))
+                        c[6].write(f"**{_hitung_rata(r):.2f}**")
+                        if c[7].button("✏️ Edit", key=f"edit_nilai_{pid}"):
+                            dialog_edit_nilai(pid, nama_p, spreadsheet_obj, juri_id_aktif)
 
     st.markdown("""
         <div style="text-align: center; margin-top: 50px; padding: 20px; border-top: 1px solid #E7E2CE; color: #BEB7A7; font-size: 0.8rem;">
