@@ -117,7 +117,7 @@ section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: .4rem !i
 }
 
 /* ================= FORM = KARTU PUTIH (Kecuali Form Login Admin) ================= */
-[data-testid="stForm"]:not(:has(input[aria-label="Username"])) {
+[data-testid="stForm"]:not([data-testid*="form_login_admin"]) {
     background: #ffffff;
     border: 1px solid %CHAMPAGNE% !important;
     border-radius: 20px;
@@ -125,8 +125,8 @@ section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: .4rem !i
     box-shadow: 0 12px 30px rgba(17, 34, 80, .10);
 }
 
-/* Khusus Form Login Admin agar transparan dan menyatu rata di dalam kotak kanan */
-[data-testid="stForm"]:has(input[aria-label="Username"]) {
+/* Khusus Form Login Admin agar transparan dan menyatu sempurna di dalam kotak kanan */
+[data-testid="stForm"] {
     background: transparent !important;
     border: none !important;
     padding: 0 !important;

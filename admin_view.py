@@ -261,7 +261,7 @@ def render_admin_portal():
         styles.inject(dark_stage=True)
         st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
         
-        # Mengatur tata letak split screen dan membungkus seluruh elemen form di dalam kolom kanan
+        # 1. Membuka kontainer utama split-screen & sisi kiri banner
         st.markdown("""
             <div class="split-login-wrapper">
                 <div class="login-left-banner">
@@ -275,6 +275,7 @@ def render_admin_portal():
                         <div class="login-box-subtitle">PORTAL MANAJEMEN EKSIBISI</div>
         """, unsafe_allow_html=True)
 
+        # 2. Form login diletakkan di dalam kotak putih yang sama
         with st.form("form_login_admin"):
             username_input = st.text_input("Username", placeholder="Masukkan username admin")
             password_input = st.text_input("Password", type="password", placeholder="Masukkan password admin")
@@ -288,6 +289,7 @@ def render_admin_portal():
                 else:
                     st.error("Username atau password salah!")
 
+        # 3. Menutup seluruh tag div pembungkus kanan & wrapper utama dengan benar
         st.markdown("""
                     </div>
                 </div>
