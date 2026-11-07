@@ -1,7 +1,9 @@
 """
 styles.py - CSS terpusat + menu sidebar berbasis tombol (tema Navy-Champagne).
+Sudah termasuk hamburger menu kustom untuk tampilan HP.
 """
 import streamlit as st
+import streamlit.components.v1 as components
 
 NAVY = "#112250"
 NAVY_2 = "#3B507D"
@@ -25,15 +27,24 @@ html, body, .stApp, .stApp p, .stApp div, .stApp label, .stApp input,
 
 %STAGE%
 
-/* ================= HEADER STREAMLIT (TETAP TAMPIL) =================
-   Header & toolbar tidak disembunyikan agar tombol buka/tutup sidebar
-   selalu tersedia. Latar dibuat transparan supaya menyatu dengan tema. */
+/* ================= HEADER STREAMLIT (TETAP TAMPIL) ================= */
 [data-testid="stHeader"] { background: transparent !important; }
 
 /* Sembunyikan hanya navigasi multipage bawaan (menu sidebar buatan sendiri tetap tampil) */
 [data-testid="stSidebarNav"], [data-testid="stSidebarNavItems"] { display: none !important; }
 
-/* ================= PAKSA SIDEBAR TERBUKA (desktop) ================= */
+/* Iframe pembantu (script hamburger) tidak boleh memakan ruang */
+[data-testid="stElementContainer"]:has(iframe[height="0"]),
+.element-container:has(iframe[height="0"]) {
+    position: absolute !important;
+    height: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+/* ================= LAPTOP: SIDEBAR SELALU TERBUKA ================= */
 @media (min-width: 769px) {
     section[data-testid="stSidebar"],
     section[data-testid="stSidebar"][aria-expanded="false"] {
@@ -45,76 +56,85 @@ html, body, .stApp, .stApp p, .stApp div, .stApp label, .stApp input,
         width: 300px !important;
         opacity: 1 !important;
     }
-}
-/* Tombol buka sidebar (nama berbeda antar versi Streamlit) */
-[data-testid="stExpandSidebarButton"],
-[data-testid="stSidebarCollapsedControl"],
-[data-testid="collapsedControl"] {
-    display: flex !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    z-index: 999999 !important;
+    section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] { display: none !important; }
+    #custom-hamburger, #nav-backdrop { display: none !important; }
 }
 
-/* ================= HP: TOMBOL HAMBURGER (☰) =================
-   Tombol bawaan Streamlit dipakai sebagai pemicu, tampilannya diganti ☰. */
+/* ================= HP: HAMBURGER KUSTOM + SIDEBAR GESER ================= */
+#custom-hamburger {
+    display: none;
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    width: 46px;
+    height: 46px;
+    align-items: center;
+    justify-content: center;
+    background: %NAVY%;
+    color: %CHAMPAGNE%;
+    border: 1px solid %NAVY_2%;
+    border-radius: 12px;
+    box-shadow: 0 4px 14px rgba(17, 34, 80, .35);
+    font-size: 24px;
+    line-height: 1;
+    padding: 0;
+    cursor: pointer;
+    z-index: 1000002;
+}
+#nav-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(11, 23, 54, .55);
+    z-index: 999998;
+}
+
 @media (max-width: 768px) {
+    #custom-hamburger { display: flex; }
+
+    /* sembunyikan tombol buka bawaan Streamlit agar tidak dobel */
     [data-testid="stExpandSidebarButton"],
     [data-testid="stSidebarCollapsedControl"],
-    [data-testid="collapsedControl"] {
+    [data-testid="collapsedControl"] { display: none !important; }
+
+    /* sidebar: default tertutup (di luar layar) */
+    section[data-testid="stSidebar"] {
         position: fixed !important;
-        top: 10px !important;
-        left: 10px !important;
-        width: 46px !important;
-        height: 46px !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        background: %NAVY% !important;
-        border: 1px solid %NAVY_2% !important;
-        border-radius: 12px !important;
-        box-shadow: 0 4px 14px rgba(17, 34, 80, .35) !important;
-        z-index: 1000000 !important;
-        padding: 0 !important;
-        overflow: hidden !important;
-    }
-    /* isi asli (ikon panah) disembunyikan tetapi tetap bisa diklik */
-    [data-testid="stExpandSidebarButton"] > *,
-    [data-testid="stSidebarCollapsedControl"] > *,
-    [data-testid="collapsedControl"] > * {
-        position: absolute !important;
-        inset: 0 !important;
-        width: 100% !important;
+        top: 0 !important;
+        left: 0 !important;
         height: 100% !important;
-        opacity: 0 !important;
+        width: 82vw !important;
+        max-width: 320px !important;
+        min-width: 0 !important;
+        margin-left: 0 !important;
+        transform: translateX(-110%) !important;
+        visibility: visible !important;
+        display: block !important;
+        transition: transform .25s ease !important;
+        z-index: 999999 !important;
+        overflow-y: auto !important;
     }
-    [data-testid="stExpandSidebarButton"]::before,
-    [data-testid="stSidebarCollapsedControl"]::before,
-    [data-testid="collapsedControl"]::before {
-        content: "☰";
-        color: %CHAMPAGNE%;
-        font-size: 24px;
-        line-height: 1;
-        pointer-events: none;
+    /* sidebar terbuka */
+    body.nav-open section[data-testid="stSidebar"] {
+        transform: translateX(0) !important;
+        box-shadow: 8px 0 30px rgba(0, 0, 0, .35) !important;
     }
-    /* beri ruang agar konten tidak tertutup hamburger */
+    body.nav-open #nav-backdrop { display: block; }
+
+    /* beri ruang atas supaya konten tidak tertutup hamburger */
     [data-testid="stMain"] .block-container,
     .stApp section.main .block-container { padding-top: 4.2rem !important; }
+
+    /* tombol tutup bawaan di dalam sidebar tidak diperlukan (pakai ✕ kustom) */
+    section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] { display: none !important; }
+
+    /* ruang atas di dalam sidebar agar tidak menabrak tombol ✕ */
+    section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"],
+    section[data-testid="stSidebar"] [data-testid="stSidebarContent"] > div:last-child { padding-top: 3.4rem !important; }
 }
 
-/* Tombol tutup (X / «) di dalam sidebar harus tetap kecil & terlihat */
-section[data-testid="stSidebar"] [data-testid="stSidebarHeader"] button,
-section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button {
-    width: auto !important;
-    padding: 6px 8px !important;
-    background: transparent !important;
-    border: none !important;
-    color: %CHAMPAGNE% !important;
-}
-@media (min-width: 769px) {
-    /* di laptop sidebar dikunci terbuka, tombol tutup tidak diperlukan */
-    section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] { display: none !important; }
-}
+/* Tombol hamburger disembunyikan bila sidebar tidak punya menu (mis. halaman login) */
+body:not(:has(section[data-testid="stSidebar"] .stButton)) #custom-hamburger { display: none !important; }
 
 /* ================= SIDEBAR ================= */
 section[data-testid="stSidebar"],
@@ -254,9 +274,56 @@ section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: .4rem !i
 _STAGE_DARK = ".stApp { background: linear-gradient(135deg, #0b1736 0%, #112250 50%, #1a3375 100%) !important; }"
 _STAGE_LIGHT = ".stApp { background: %IVORY% !important; color: %NAVY% !important; }"
 
+# Script dijalankan di dokumen induk (halaman Streamlit), cukup sekali per sesi browser.
+_NAV_JS = """
+<script>
+(function () {
+    try {
+        var p = window.parent;
+        if (p.__navInit) { return; }
+        p.__navInit = true;
+
+        var init = function () {
+            var b = document.createElement('button');
+            b.id = 'custom-hamburger';
+            b.type = 'button';
+            b.setAttribute('aria-label', 'Menu');
+            b.textContent = '\\u2630';
+
+            var bd = document.createElement('div');
+            bd.id = 'nav-backdrop';
+
+            document.body.appendChild(bd);
+            document.body.appendChild(b);
+
+            function setOpen(open) {
+                document.body.classList.toggle('nav-open', open);
+                b.textContent = open ? '\\u2715' : '\\u2630';
+            }
+            b.addEventListener('click', function () {
+                setOpen(!document.body.classList.contains('nav-open'));
+            });
+            bd.addEventListener('click', function () { setOpen(false); });
+
+            // tutup otomatis setelah memilih menu di sidebar
+            document.addEventListener('click', function (e) {
+                if (!document.body.classList.contains('nav-open')) { return; }
+                var t = e.target;
+                if (t.closest && t.closest('section[data-testid="stSidebar"]') && t.closest('button')) {
+                    setTimeout(function () { setOpen(false); }, 250);
+                }
+            });
+        };
+
+        new p.Function('(' + init.toString() + ')()')();
+    } catch (err) { console.log('nav init gagal', err); }
+})();
+</script>
+"""
+
 
 def inject(dark_stage: bool = False) -> None:
-    """Suntikkan CSS. Panggil sekali di awal setiap render halaman."""
+    """Suntikkan CSS + hamburger HP. Panggil sekali di awal setiap render halaman."""
     css = _CSS.replace("%STAGE%", _STAGE_DARK if dark_stage else _STAGE_LIGHT)
     for token, value in {
         "%NAVY_2%": NAVY_2, "%NAVY%": NAVY, "%CHAMPAGNE%": CHAMPAGNE,
@@ -264,6 +331,7 @@ def inject(dark_stage: bool = False) -> None:
     }.items():
         css = css.replace(token, value)
     st.markdown(css, unsafe_allow_html=True)
+    components.html(_NAV_JS, height=0)
 
 
 def sidebar_menu(items, key, divider_before=None):
