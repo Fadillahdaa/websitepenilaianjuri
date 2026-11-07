@@ -177,26 +177,17 @@ def render_admin_portal():
     if "admin_logged_in" not in st.session_state:
         st.session_state.admin_logged_in = False
 
-    # ================= FORM LOGIN ADMIN (LAYOUT KIRI-KANAN) =================
+    # ================= FORM LOGIN ADMIN (HANYA KOTAK LOGIN) =================
     if not st.session_state.admin_logged_in:
         styles.inject(dark_stage=True)
         st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
         
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("<br><br>", unsafe_allow_html=True)
         
-        # Membuat 2 Kolom Sejajar (Kiri = Banner, Kanan = Form Login Box)
-        col_left, col_right = st.columns([1.2, 1], gap="large")
+        # Membuat form login tampil di tengah tanpa banner kiri
+        _, col_center, _ = st.columns([1, 1.2, 1])
 
-        with col_left:
-            st.markdown("""
-                <div style="background: linear-gradient(135deg, #112250 0%, #3B507D 50%, #3BF07D 100%); padding: 50px 40px; border-radius: 20px; color: white; height: 100%; display: flex; flex-direction: column; justify-content: center; box-shadow: 0 15px 35px rgba(17, 34, 80, 0.08);">
-                    <div style="font-size: 3rem; margin-bottom: 12px;">👋</div>
-                    <h1 style="color: #ffffff !important; font-size: 2.2rem; font-weight: 800; margin-bottom: 16px;">Selamat Datang Admin</h1>
-                    <p style="color: #E7E2CE; font-size: 0.95rem; line-height: 1.6; margin: 0;">Silakan masuk menggunakan kredensial akun administrator Anda untuk mengelola seluruh data peserta, instansi, serta memantau hasil penilaian pameran secara real-time.</p>
-                </div>
-            """, unsafe_allow_html=True)
-
-        with col_right:
+        with col_center:
             with st.form("form_login_admin"):
                 st.markdown("""
                     <div style="text-align: center; margin-bottom: 20px;">
