@@ -22,7 +22,7 @@ _ADMIN_CSS = """
         flex-direction: row;
         width: 100%;
         min-height: 82vh;
-        background: transparent;
+        background: #ffffff;
         border-radius: 24px;
         overflow: hidden;
         margin-top: 2vh;
@@ -56,7 +56,7 @@ _ADMIN_CSS = """
         max-width: 450px;
     }
 
-    /* Bagian Kanan (Kotak Putih Utuh Tempat Login) */
+    /* Bagian Kanan (Area Putih) */
     .login-right-container {
         flex: 1;
         background: #ffffff;
@@ -64,6 +64,12 @@ _ADMIN_CSS = """
         display: flex;
         flex-direction: column;
         justify-content: center;
+        align-items: center;
+    }
+
+    .login-box-content {
+        width: 100%;
+        max-width: 380px;
     }
 
     .login-box-title {
@@ -78,18 +84,19 @@ _ADMIN_CSS = """
         color: #8A93A8;
         font-size: 0.82rem;
         text-align: center;
-        margin-bottom: 24px;
+        margin-bottom: 28px;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 1px;
     }
 
-    /* Hilangkan padding & border st.form bawaan agar menyatu dalam 1 kotak */
+    /* Membungkus st.form agar menyatu rapi di dalam kotak kanan */
     [data-testid="stForm"] {
         border: none !important;
         padding: 0 !important;
         box-shadow: none !important;
         background: transparent !important;
+        width: 100% !important;
     }
 
     [data-testid="stForm"] label p {
@@ -254,7 +261,7 @@ def render_admin_portal():
         styles.inject(dark_stage=True)
         st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
         
-        # Membuka pembungkus flex wrapper utama
+        # Mengatur tata letak split screen dan membungkus seluruh elemen form di dalam kolom kanan
         st.markdown("""
             <div class="split-login-wrapper">
                 <div class="login-left-banner">
@@ -263,8 +270,9 @@ def render_admin_portal():
                     <p>Silakan masuk menggunakan kredensial akun administrator Anda untuk mengelola seluruh data peserta, instansi, serta memantau hasil penilaian pameran secara real-time.</p>
                 </div>
                 <div class="login-right-container">
-                    <div class="login-box-title">ADMIN LOGIN</div>
-                    <div class="login-box-subtitle">Portal Manajemen Eksibisi</div>
+                    <div class="login-box-content">
+                        <div class="login-box-title">ADMIN LOGIN</div>
+                        <div class="login-box-subtitle">PORTAL MANAJEMEN EKSIBISI</div>
         """, unsafe_allow_html=True)
 
         with st.form("form_login_admin"):
@@ -280,8 +288,8 @@ def render_admin_portal():
                 else:
                     st.error("Username atau password salah!")
 
-        # Menutup pembungkus flex wrapper utama bagian kanan
         st.markdown("""
+                    </div>
                 </div>
             </div>
         """, unsafe_allow_html=True)
