@@ -10,9 +10,9 @@ _dialog = getattr(st, "dialog", None) or getattr(st, "experimental_dialog", None
 if _dialog is None:
     raise RuntimeError("Fitur popup butuh Streamlit >= 1.34. Jalankan: pip install -U streamlit")
 
-# Setelah menekan OK pada popup "berhasil", juri dikembalikan ke halaman utama (Dashboard).
-# Ubah ke False bila ingin tetap berada di halaman yang sedang dibuka.
-KEMBALI_KE_DASHBOARD = True
+# False = setelah menekan Oke pada popup, juri tetap berada di halaman yang sedang dibuka.
+# Ubah ke True bila ingin dikembalikan ke Dashboard.
+KEMBALI_KE_DASHBOARD = False
 MENU_DASHBOARD = "🏠 Dashboard"
 
 KRITERIA = [
@@ -36,6 +36,11 @@ _JURI_CSS = """
     [data-testid="stDialog"] .stButton > button:hover {
         background-color: #1a3375 !important; color: #3BF07D !important;
     }
+    /* Teks di dalam tombol (elemen p/div anak) harus ikut putih, bukan navy */
+    [data-testid="stDialog"] .stButton > button *,
+    [data-testid="stDialog"] .stButton > button p { color: #ffffff !important; }
+    [data-testid="stDialog"] .stButton > button:hover *,
+    [data-testid="stDialog"] .stButton > button:hover p { color: #3BF07D !important; }
 </style>
 """
 
@@ -214,7 +219,7 @@ def dialog_notif(tipe, judul, pesan):
     ikon = {"success": "✅", "warning": "⚠️", "error": "❌"}.get(tipe, "ℹ️")
     st.markdown(f"### {ikon} {judul}")
     st.markdown(pesan)
-    if st.button("OK", key="notif_ok"):
+    if st.button("Oke", key="notif_ok"):
         if KEMBALI_KE_DASHBOARD and tipe == "success":
             st.session_state["menu_juri_state"] = MENU_DASHBOARD
         st.rerun()
