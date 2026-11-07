@@ -236,6 +236,18 @@ def render_juri_portal():
         <style>
             .block-container { padding-top: 2rem !important; }
 
+            /* Halaman login: sembunyikan sidebar kosong (menimpa aturan di styles.py) */
+            html body section[data-testid="stSidebar"],
+            html body section[data-testid="stSidebar"][aria-expanded="false"],
+            html body [data-testid="stSidebarCollapsedControl"],
+            html body [data-testid="stExpandSidebarButton"],
+            html body #custom-hamburger,
+            html body #nav-backdrop {
+                display: none !important;
+                width: 0 !important;
+                min-width: 0 !important;
+            }
+
             .login-brand { display:flex; align-items:center; gap:14px; margin-bottom:22px; }
             .login-brand .mark {
                 width:54px; height:54px; border-radius:14px; font-size:28px;

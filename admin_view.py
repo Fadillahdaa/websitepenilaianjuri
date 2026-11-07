@@ -79,6 +79,24 @@ _ADMIN_CSS = """
 """
 
 
+_HIDE_SIDEBAR_CSS = """
+<style>
+
+    /* Halaman login: sembunyikan sidebar kosong (menimpa aturan di styles.py) */
+    html body section[data-testid="stSidebar"],
+    html body section[data-testid="stSidebar"][aria-expanded="false"],
+    html body [data-testid="stSidebarCollapsedControl"],
+    html body [data-testid="stExpandSidebarButton"],
+    html body #custom-hamburger,
+    html body #nav-backdrop {
+        display: none !important;
+        width: 0 !important;
+        min-width: 0 !important;
+    }
+</style>
+"""
+
+
 # ============================ HELPER ============================
 def _exact_cells(ws, value, col):
     return [c for c in ws.findall(str(value), in_column=col) if c.value == str(value)]
@@ -180,6 +198,7 @@ def render_admin_portal():
     if not st.session_state.admin_logged_in:
         styles.inject(dark_stage=True)
         st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
+        st.markdown(_HIDE_SIDEBAR_CSS, unsafe_allow_html=True)
         
         st.markdown("<br><br>", unsafe_allow_html=True)
         
