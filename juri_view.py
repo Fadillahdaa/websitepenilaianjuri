@@ -126,22 +126,11 @@ def render_juri_portal():
             """, unsafe_allow_html=True)
 
         with col_form:
-            df_instansi = db_helper.ensure_instansi_cols(st.session_state.db_instansi)
-            st.session_state.db_instansi = df_instansi
-
+            df_jenis = st.session_state.db_jenis
+            daftar_jenis = sorted({
+                str(x).strip() for x in df_jenis["nama_jenis"] if str(x).strip()
+            }) if not df_jenis.empty else []
             PLACEHOLDER = "-- Pilih Instansi dari Daftar --"
-
-            # Label dropdown: "Jenis · Nama Instansi", urut per jenis lalu nama
-            map_label_ke_id = {}
-            if not df_instansi.empty:
-                df_urut = df_instansi.assign(
-                    _jenis=df_instansi["jenis_instansi"].astype(str).str.strip()
-                ).sort_values(["_jenis", "nama_instansi"])
-                for _, r in df_urut.iterrows():
-                    label = f"{r['_jenis']} · {r['nama_instansi']}" if r["_jenis"] else str(r["nama_instansi"])
-                    if label in map_label_ke_id:  # jaga-jaga bila ada nama kembar
-                        label = f"{label} [{r['id_instansi']}]"
-                    map_label_ke_id[label] = r["id_instansi"]
 
             with st.form("form_login_juri"):
                 st.markdown("""
@@ -151,24 +140,22 @@ def render_juri_portal():
                     </div>
                 """, unsafe_allow_html=True)
 
-                input_nama_juri = st.text_input(
-                    "Nama Lengkap*",
-                    placeholder="Contoh: Ahmad Subarjo"
-                )
-                selected_instansi = st.selectbox(
-                    "Pilih Instansi Asal*",
-                    options=[PLACEHOLDER] + list(map_label_ke_id.keys())
+                input_nama_juri = st.text_input("Nama Lengkap*", placeholder="Contoh: Ahmad Subarjo")
+                jenis_dipilih = st.selectbox("Pilih Instansi Asal*", options=[PLACEHOLDER] + daftar_jenis)
+                nama_instansi_input = st.text_input(
+                    "Nama Instansi*",
+                    placeholder="Contoh: Dinas Pendidikan Kota Madiun",
                 )
 
-                if not map_label_ke_id:
-                    st.info("Daftar instansi belum tersedia. Silakan hubungi administrator.")
+                if not daftar_jenis:
+                    st.info("Pilihan instansi belum tersedia. Silakan hubungi administrator.")
 
                 _, btn_col, _ = st.columns([0.2, 2, 0.2])
                 with btn_col:
                     btn_masuk = st.form_submit_button(
                         "Masuk ke Sistem Penilaian",
                         use_container_width=True,
-                        disabled=not map_label_ke_id,
+                        disabled=not daftar_jenis,
                     )
 
                 st.markdown('<div class="login-foot">FINAL PROJECT PBK DIGITAL AI WORK EXHIBITION</div>',
@@ -176,15 +163,40 @@ def render_juri_portal():
 
                 if btn_masuk:
                     nama_final = input_nama_juri.strip()
+                    instansi_nama = nama_instansi_input.strip()
 
                     if not nama_final:
                         st.error("Nama lengkap juri wajib diisi!")
-                    elif selected_instansi == PLACEHOLDER:
-                        st.error("Silakan pilih instansi Anda dari daftar.")
+                    elif jenis_dipilih == PLACEHOLDER:
+                        st.error("Silakan pilih instansi asal dari daftar.")
+                    elif not instansi_nama:
+                        st.error("Nama instansi wajib diisi!")
                     else:
-                        instansi_id_final = map_label_ke_id[selected_instansi]
+                        # ---- Instansi (cocokkan jenis + nama, buat baru bila belum ada) ----
+                        df_ins = db_helper.ensure_instansi_cols(st.session_state.db_instansi)
+                        matched_ins = df_ins[
+                            (df_ins["jenis_instansi"].str.lower() == jenis_dipilih.lower())
+                            & (df_ins["nama_instansi"].str.lower() == instansi_nama.lower())
+                        ]
+                        if not matched_ins.empty:
+                            instansi_id_final = matched_ins.iloc[0]["id_instansi"]
+                        else:
+                            instansi_id_final = db_helper.next_id(df_ins, "INS", "id_instansi")
+                            new_ins_row = {
+                                "id_instansi": instansi_id_final,
+                                "nama_instansi": instansi_nama,
+                                "jenis_instansi": jenis_dipilih,
+                            }
+                            st.session_state.db_instansi = pd.concat(
+                                [df_ins, pd.DataFrame([new_ins_row])], ignore_index=True
+                            )
+                            ok, serr = db_helper.safe_append(
+                                spreadsheet_obj, "instansi", [instansi_id_final, instansi_nama, jenis_dipilih]
+                            )
+                            if not ok:
+                                st.warning(f"Instansi baru gagal ditulis ke Google Sheet: {serr}")
 
-                        # ---- Juri (cocokkan nama + instansi, bukan nama saja) ----
+                        # ---- Juri (cocokkan nama + instansi) ----
                         df_juri = st.session_state.db_juri
                         if not df_juri.empty:
                             existing_juri = df_juri[

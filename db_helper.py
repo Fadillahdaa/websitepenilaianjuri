@@ -19,6 +19,7 @@ SCOPES = [
 # Nama sheet (SEMUA HURUF KECIL) -> header kolom
 SCHEMA = {
     "instansi": ["id_instansi", "nama_instansi", "jenis_instansi"],
+    "jenis": ["id_jenis", "nama_jenis"],
     "juri": ["id_juri", "nama_juri", "id_instansi"],
     "peserta": ["id_peserta", "nama_peserta", "status"],
     "penilaian": ["id", "id_juri", "id_instansi", "id_peserta",
@@ -27,6 +28,7 @@ SCHEMA = {
 }
 SESSION_KEYS = {
     "instansi": "db_instansi",
+    "jenis": "db_jenis",
     "juri": "db_juri",
     "peserta": "db_peserta",
     "penilaian": "db_penilaian",
