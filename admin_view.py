@@ -12,7 +12,6 @@ if _dialog is None:
 
 _ADMIN_CSS = """
 <style>
-    /* Mengatur kontainer utama agar tampil full ala split-screen */
     .stApp {
         background-color: #F5F4F0;
     }
@@ -22,13 +21,13 @@ _ADMIN_CSS = """
         display: flex;
         flex-direction: row;
         width: 100%;
-        min-height: 85vh;
-        background: #ffffff;
+        min-height: 82vh;
+        background: transparent;
         border-radius: 24px;
         overflow: hidden;
-        box-shadow: 0 20px 40px rgba(17, 34, 80, 0.12);
-        border: 1px solid #E7E2CE;
         margin-top: 2vh;
+        box-shadow: 0 20px 40px rgba(17, 34, 80, 0.08);
+        border: 1px solid #E7E2CE;
     }
 
     /* Bagian Kiri (Banner Gradasi) */
@@ -40,8 +39,6 @@ _ADMIN_CSS = """
         display: flex;
         flex-direction: column;
         justify-content: center;
-        position: relative;
-        overflow: hidden;
     }
     
     .login-left-banner h1 {
@@ -59,36 +56,35 @@ _ADMIN_CSS = """
         max-width: 450px;
     }
 
-    /* Bagian Kanan (Form Login) */
-    .login-right-form {
+    /* Bagian Kanan (Kotak Putih Utuh Tempat Login) */
+    .login-right-container {
         flex: 1;
         background: #ffffff;
-        padding: 60px 50px;
+        padding: 50px 45px;
         display: flex;
         flex-direction: column;
         justify-content: center;
     }
 
-    .login-form-title {
+    .login-box-title {
         color: #112250;
         font-size: 1.75rem;
         font-weight: 800;
         text-align: center;
-        margin-bottom: 8px;
-        letter-spacing: 0.5px;
+        margin-bottom: 6px;
     }
     
-    .login-form-subtitle {
+    .login-box-subtitle {
         color: #8A93A8;
-        font-size: 0.85rem;
+        font-size: 0.82rem;
         text-align: center;
-        margin-bottom: 30px;
-        font-weight: 600;
+        margin-bottom: 24px;
+        font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 1px;
     }
 
-    /* Hilangkan padding & border st.form bawaan */
+    /* Hilangkan padding & border st.form bawaan agar menyatu dalam 1 kotak */
     [data-testid="stForm"] {
         border: none !important;
         padding: 0 !important;
@@ -96,14 +92,13 @@ _ADMIN_CSS = """
         background: transparent !important;
     }
 
-    /* Label Form Input */
     [data-testid="stForm"] label p {
         color: #112250 !important;
         font-weight: 700 !important;
         font-size: 0.88rem !important;
     }
     
-    /* Tombol Login Kustom */
+    /* Tombol Login */
     [data-testid="stForm"] .stButton > button {
         background-color: #112250 !important;
         color: #ffffff !important;
@@ -148,11 +143,10 @@ _ADMIN_CSS = """
     [data-testid="stDialog"] h1, [data-testid="stDialog"] h4 { color: #112250 !important; }
     [data-testid="stDialog"] [data-testid="stForm"] { border: none !important; box-shadow: none !important; padding: 0 !important; }
 
-    /* Responsif untuk layar kecil */
     @media(max-width: 768px) {
         .split-login-wrapper { flex-direction: column; }
         .login-left-banner { padding: 30px 20px; text-align: center; }
-        .login-right-form { padding: 30px 20px; }
+        .login-right-container { padding: 30px 20px; }
     }
 </style>
 """
@@ -255,12 +249,12 @@ def render_admin_portal():
     if "admin_logged_in" not in st.session_state:
         st.session_state.admin_logged_in = False
 
-    # ================= FORM LOGIN ADMIN (LAYOUT SPLIT SCREEN) =================
+    # ================= FORM LOGIN ADMIN (LAYOUT SPLIT-SCREEN) =================
     if not st.session_state.admin_logged_in:
         styles.inject(dark_stage=True)
         st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
         
-        # Membuat layout split screen menggunakan HTML/CSS wrapper
+        # Membuka pembungkus flex wrapper utama
         st.markdown("""
             <div class="split-login-wrapper">
                 <div class="login-left-banner">
@@ -268,9 +262,9 @@ def render_admin_portal():
                     <h1>Selamat Datang Admin</h1>
                     <p>Silakan masuk menggunakan kredensial akun administrator Anda untuk mengelola seluruh data peserta, instansi, serta memantau hasil penilaian pameran secara real-time.</p>
                 </div>
-                <div class="login-right-form" id="login-form-container">
-                    <div class="login-form-title">ADMIN LOGIN</div>
-                    <div class="login-form-subtitle">Portal Manajemen Eksibisi</div>
+                <div class="login-right-container">
+                    <div class="login-box-title">ADMIN LOGIN</div>
+                    <div class="login-box-subtitle">Portal Manajemen Eksibisi</div>
         """, unsafe_allow_html=True)
 
         with st.form("form_login_admin"):
@@ -286,6 +280,7 @@ def render_admin_portal():
                 else:
                     st.error("Username atau password salah!")
 
+        # Menutup pembungkus flex wrapper utama bagian kanan
         st.markdown("""
                 </div>
             </div>
