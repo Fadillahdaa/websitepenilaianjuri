@@ -62,27 +62,63 @@ def _hitung_rata(row):
 
 
 def _input_nilai(prefix, defaults):
-    """Input 4 kriteria (batas keras 0-100) + kartu rata-rata yang langsung berubah."""
-    skor = []
+    """
+    4 kolom nilai (kosong, placeholder "60 - 100"). Nilai > 100 atau bukan angka ditolak.
+    Return (skor, total, rata); ketiganya None sampai keempat nilai valid.
+    """
+    nilai, lengkap = [], True
     for i, (label, d) in enumerate(zip(KRITERIA, defaults), start=1):
-        skor.append(int(st.number_input(
-            f"{label} (60 - 100)",
-            min_value=0, max_value=100, value=d, step=1, key=f"{prefix}_k{i}",
-        )))
-    total = sum(skor)
-    rata = round(total / len(KRITERIA), 2)
-    st.markdown(f"""
-        <div style="background: white; border: 2px solid #3B507D; border-radius: 12px; padding: 14px; margin: 12px 0; text-align: center;">
-            <div style="color: #6B7280; font-size: 0.82rem; font-weight: 600;">
-                Total nilai {total} ÷ {len(KRITERIA)} kriteria
+        mentah = st.text_input(
+            label,
+            value="" if d is None else str(d),
+            placeholder="60 - 100",
+            max_chars=3,
+            key=f"{prefix}_k{i}",
+        ).strip()
+
+        if mentah == "":
+            lengkap = False
+        elif not (mentah.isascii() and mentah.isdigit()):
+            lengkap = False
+            st.markdown("<span style='color:#dc3545; font-size:.82rem;'>⚠️ Isi dengan angka bulat 0 - 100.</span>",
+                        unsafe_allow_html=True)
+        elif int(mentah) > 100:
+            lengkap = False
+            st.markdown("<span style='color:#dc3545; font-size:.82rem;'>⚠️ Nilai tidak boleh lebih dari 100.</span>",
+                        unsafe_allow_html=True)
+        else:
+            nilai.append(int(mentah))
+
+    if lengkap and len(nilai) == len(KRITERIA):
+        total = sum(nilai)
+        rata = round(total / len(KRITERIA), 2)
+        rumus = " + ".join(str(n) for n in nilai)
+        isi = f"""
+            <div style="color: #6B7280; font-size: 0.85rem; font-weight: 600;">
+                {rumus} = {total} ÷ {len(KRITERIA)} kriteria
             </div>
             <div style="margin-top: 4px;">
                 <span style="color: #6B7280; font-weight: 600;">Rata-rata / Skor Akhir:</span>
                 <span style="font-size: 1.7rem; font-weight: 800; color: #112250; margin-left: 10px;">{rata:.2f}</span>
+            </div>"""
+        hasil = (nilai, total, rata)
+    else:
+        isi = """
+            <div style="color: #6B7280; font-size: 0.85rem; font-weight: 600;">
+                Isi keempat nilai (0 - 100) untuk melihat rata-rata
             </div>
-        </div>
-    """, unsafe_allow_html=True)
-    return skor, total, rata
+            <div style="margin-top: 4px;">
+                <span style="color: #6B7280; font-weight: 600;">Rata-rata / Skor Akhir:</span>
+                <span style="font-size: 1.7rem; font-weight: 800; color: #BEB7A7; margin-left: 10px;">—</span>
+            </div>"""
+        hasil = (None, None, None)
+
+    st.markdown(
+        f'<div style="background: white; border: 2px solid #3B507D; border-radius: 12px; '
+        f'padding: 14px; margin: 12px 0; text-align: center;">{isi}</div>',
+        unsafe_allow_html=True,
+    )
+    return hasil
 
 
 def _simpan_nilai(spreadsheet_obj, juri_id, peserta_id, skor, catatan):
@@ -208,13 +244,10 @@ def dialog_edit_nilai(peserta_id, peserta_nama, spreadsheet_obj, juri_id):
         max_chars=500, key=f"edit_catatan_{peserta_id}",
     )
 
-    if st.button("💾 Simpan Perubahan", key=f"edit_simpan_{peserta_id}"):
-        if not all(0 <= s <= 100 for s in skor):
-            st.error("Nilai harus berada pada rentang 0 - 100.")
-        else:
-            hasil = _simpan_nilai(spreadsheet_obj, juri_id, peserta_id, skor, catatan.strip())
-            _popup_nilai(peserta_nama, hasil, diperbarui=True)
-            st.rerun()
+    if st.button("💾 Simpan Perubahan", key=f"edit_simpan_{peserta_id}", disabled=skor is None):
+        hasil = _simpan_nilai(spreadsheet_obj, juri_id, peserta_id, skor, catatan.strip())
+        _popup_nilai(peserta_nama, hasil, diperbarui=True)
+        st.rerun()
 
 
 # ============================ HALAMAN JURI ============================
@@ -566,7 +599,7 @@ def render_juri_portal():
                     </div>
                 """, unsafe_allow_html=True)
 
-                default_scores = [80] * 4
+                default_scores = [None] * 4
                 default_catatan = ""
                 sudah_pernah = str(peserta_id) in sudah_dinilai
                 if sudah_pernah:
@@ -586,13 +619,10 @@ def render_juri_portal():
                         key=f"catatan_{peserta_id}",
                     )
 
-                    if st.button("💾 Simpan Nilai ➔", key=f"simpan_nilai_{peserta_id}"):
-                        if not all(0 <= s <= 100 for s in skor):
-                            st.error("Nilai harus berada pada rentang 0 - 100.")
-                        else:
-                            hasil = _simpan_nilai(spreadsheet_obj, juri_id_aktif, peserta_id, skor, catatan.strip())
-                            _popup_nilai(peserta_nama, hasil, diperbarui=sudah_pernah)
-                            st.rerun()
+                    if st.button("💾 Simpan Nilai ➔", key=f"simpan_nilai_{peserta_id}", disabled=skor is None):
+                        hasil = _simpan_nilai(spreadsheet_obj, juri_id_aktif, peserta_id, skor, catatan.strip())
+                        _popup_nilai(peserta_nama, hasil, diperbarui=sudah_pernah)
+                        st.rerun()
 
         # ---------------- PESERTA FAVORIT ----------------
         elif menu_juri == "⭐ Peserta Favorit":
