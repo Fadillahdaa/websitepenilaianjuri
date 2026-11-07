@@ -33,6 +33,29 @@ html, body, .stApp, .stApp p, .stApp div, .stApp label, .stApp input,
 /* Sembunyikan hanya navigasi multipage bawaan (menu sidebar buatan sendiri tetap tampil) */
 [data-testid="stSidebarNav"], [data-testid="stSidebarNavItems"] { display: none !important; }
 
+/* ================= PAKSA SIDEBAR TERBUKA (desktop) ================= */
+@media (min-width: 769px) {
+    section[data-testid="stSidebar"],
+    section[data-testid="stSidebar"][aria-expanded="false"] {
+        display: block !important;
+        visibility: visible !important;
+        transform: none !important;
+        margin-left: 0 !important;
+        min-width: 300px !important;
+        width: 300px !important;
+        opacity: 1 !important;
+    }
+}
+/* Tombol buka sidebar (nama berbeda antar versi Streamlit) */
+[data-testid="stExpandSidebarButton"],
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"] {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    z-index: 999999 !important;
+}
+
 /* ================= SIDEBAR ================= */
 section[data-testid="stSidebar"],
 section[data-testid="stSidebar"] > div {
