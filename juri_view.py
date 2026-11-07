@@ -55,6 +55,71 @@ _JURI_CSS = """
 </style>
 """
 
+_FAV_CSS = """
+<style>
+    /* Kartu form favorit */
+    html body [data-testid="stMain"] [data-testid="stForm"] {
+        background: #ffffff !important;
+        border: 1px solid #E7E2CE !important;
+        border-radius: 16px !important;
+        padding: 24px !important;
+        box-shadow: 0 8px 24px rgba(17, 34, 80, 0.06) !important;
+    }
+
+    /* Judul "Daftar Kandidat Peserta" */
+    html body [data-testid="stMain"] [data-testid="stRadio"] > label p {
+        color: #112250 !important;
+        font-weight: 800 !important;
+        font-size: 1rem !important;
+        margin-bottom: 6px !important;
+    }
+
+    html body [data-testid="stMain"] [data-testid="stRadio"] [role="radiogroup"] {
+        gap: 10px !important;
+    }
+
+    /* Setiap pilihan = satu kartu */
+    html body [data-testid="stMain"] [data-testid="stRadio"] label[data-baseweb="radio"] {
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 14px 18px !important;
+        background: #F5F4F0 !important;
+        border: 1.5px solid #E7E2CE !important;
+        border-radius: 12px !important;
+        transition: all 0.18s ease-in-out !important;
+        cursor: pointer !important;
+    }
+    html body [data-testid="stMain"] [data-testid="stRadio"] label[data-baseweb="radio"]:hover {
+        background: #ffffff !important;
+        border-color: #3B507D !important;
+        box-shadow: 0 4px 12px rgba(17, 34, 80, 0.10) !important;
+    }
+
+    /* Pilihan yang aktif */
+    html body [data-testid="stMain"] [data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) {
+        background: #EEF2FB !important;
+        border-color: #112250 !important;
+        box-shadow: 0 0 0 1px #112250, 0 4px 12px rgba(17, 34, 80, 0.12) !important;
+    }
+
+    /* Teks pilihan */
+    html body [data-testid="stMain"] [data-testid="stRadio"] label[data-baseweb="radio"] p {
+        color: #112250 !important;
+        font-size: 1rem !important;
+        font-weight: 600 !important;
+    }
+    html body [data-testid="stMain"] [data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) p {
+        font-weight: 800 !important;
+    }
+
+    /* Lingkaran radio: navy (bukan merah) saat dipilih */
+    html body [data-testid="stMain"] [data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) > div:first-child {
+        background-color: #112250 !important;
+        border-color: #112250 !important;
+    }
+</style>
+"""
+
 
 # ============================ HELPER ============================
 def _auth_kosong():
@@ -660,12 +725,14 @@ def render_juri_portal():
                 if current_fav_id in label_map:
                     st.info(f"Favorit Anda saat ini: **{label_map[current_fav_id]}**")
 
+                st.markdown(_FAV_CSS, unsafe_allow_html=True)
+
                 with st.form("form_voting_favorit"):
                     pilih_fav_id = st.radio(
                         "Daftar Kandidat Peserta:",
                         options=list_id,
                         index=idx_def,
-                        format_func=lambda x: label_map[x],
+                        format_func=lambda x: label_map[x] + ("   ⭐ pilihan saat ini" if x == current_fav_id else ""),
                     )
                     st.markdown("<br>", unsafe_allow_html=True)
 
