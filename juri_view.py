@@ -21,7 +21,7 @@ def render_juri_portal():
 
         st.markdown("""
         <style>
-            .block-container { padding-top: 2rem !important; }
+            .block-container { padding-top: 3rem !important; }
 
             .login-brand { display:flex; align-items:center; gap:14px; margin-bottom:22px; }
             .login-brand .mark {
@@ -30,7 +30,7 @@ def render_juri_portal():
                 background:rgba(231,226,206,.12); border:1px solid rgba(231,226,206,.30);
             }
             .login-brand .name { font-size:.95rem; font-weight:800; letter-spacing:1.5px; color:#E7E2CE; }
-            .login-title { font-size:2.5rem; font-weight:800; line-height:1.1; color:#ffffff; margin:0 0 12px 0; }
+            .login-title { font-size:2.7rem; font-weight:800; line-height:1.1; color:#ffffff; margin:0 0 12px 0; }
             .login-tagline { color:#BEB7A7; font-style:italic; font-size:.95rem; margin:0 0 30px 0; }
             .login-info {
                 background:rgba(255,255,255,.06);
@@ -41,33 +41,14 @@ def render_juri_portal():
             .login-info .t { color:#E7E2CE; font-weight:700; font-size:1rem; margin-bottom:6px; }
             .login-info .d { color:#CFCAB8; font-size:.88rem; line-height:1.65; }
 
-            .login-head { text-align:center; margin-bottom:20px; }
-            .login-head .h { color:#112250 !important; font-size:1.7rem; font-weight:800; margin:0 0 6px 0; }
-            .login-head .s { color:#5B6B8C !important; font-size:.9rem; margin:0; }
+            .login-head { text-align:center; margin-bottom:18px; }
+            .login-head .h { color:#112250; font-size:1.7rem; font-weight:800; margin:0 0 6px 0; }
+            .login-head .s { color:#5B6B8C; font-size:.9rem; margin:0; }
             .login-foot {
-                text-align:center; margin-top:16px; padding-top:12px;
+                text-align:center; margin-top:14px; padding-top:12px;
                 border-top:1px solid #E7E2CE; color:#8A93A8; font-size:.72rem; letter-spacing:.3px;
             }
 
-            /* Styling Kotak Form Putih Solid */
-            [data-testid="stForm"] {
-                background: #ffffff !important;
-                border: 1px solid #E7E2CE !important;
-                border-radius: 20px !important;
-                padding: 35px 30px !important;
-                box-shadow: 0 15px 35px rgba(17, 34, 80, 0.15) !important;
-                width: 100% !important;
-            }
-
-            /* Warna Label Input di Dalam Form */
-            [data-testid="stForm"] label, 
-            [data-testid="stForm"] label p {
-                color: #112250 !important;
-                font-weight: 700 !important;
-                font-size: 0.88rem !important;
-            }
-
-            /* Field Input & Selectbox */
             [data-testid="stForm"] [data-baseweb="input"],
             [data-testid="stForm"] [data-baseweb="select"] > div {
                 background:#F5F4F0 !important;
@@ -81,25 +62,6 @@ def render_juri_portal():
             [data-testid="stForm"] input,
             [data-testid="stForm"] [data-baseweb="select"] * { color:#112250 !important; }
             [data-testid="stForm"] input::placeholder { color:#8A93A8 !important; }
-
-            /* Tombol Submit Login Juri */
-            [data-testid="stForm"] .stButton > button {
-                background-color: #112250 !important;
-                color: #ffffff !important;
-                border-radius: 12px !important;
-                padding: 12px 20px !important;
-                font-weight: 700 !important;
-                font-size: 1rem !important;
-                border: none !important;
-                box-shadow: 0 4px 12px rgba(17, 34, 80, 0.25) !important;
-                margin-top: 10px !important;
-                transition: all 0.2s ease-in-out !important;
-            }
-            [data-testid="stForm"] .stButton > button:hover {
-                background-color: #1a3375 !important;
-                color: #3BF07D !important;
-                box-shadow: 0 6px 16px rgba(17, 34, 80, 0.35) !important;
-            }
         </style>
         """, unsafe_allow_html=True)
 
@@ -148,10 +110,7 @@ def render_juri_portal():
                     placeholder="Contoh: PT Inovasi Digital"
                 )
 
-                # Menggunakan kolom internal form agar tombol di tengah secara rapi
-                _, btn_col, _ = st.columns([0.2, 2, 0.2])
-                with btn_col:
-                    btn_masuk = st.form_submit_button("Masuk ke Sistem Penilaian", use_container_width=True)
+                btn_masuk = st.form_submit_button("Masuk ke Sistem Penilaian")
 
                 st.markdown('<div class="login-foot">FINAL PROJECT PBK DIGITAL AI WORK EXHIBITION</div>',
                             unsafe_allow_html=True)
@@ -494,9 +453,11 @@ def render_juri_portal():
                 list_id_peserta = df_peserta['id_peserta'].tolist()
                 idx_def = list_id_peserta.index(current_fav_id) if current_fav_id in list_id_peserta else 0
                 
+                # Menyiapkan list opsi format string "Nama [ID]"
                 opsi_peserta_list = (df_peserta['nama_peserta'] + " [" + df_peserta['id_peserta'] + "]").tolist()
                 
                 with st.form("form_voting_favorit"):
+                    # Mengganti st.selectbox menjadi st.radio agar semua nama langsung tampil ke bawah
                     selected_fav_label = st.radio(
                         "Daftar Kandidat Peserta:",
                         options=opsi_peserta_list,
@@ -527,7 +488,7 @@ def render_juri_portal():
                             except Exception:
                                 pass
                                 
-                        st.success("Pilihan peserta favorit berhasil disimpan!")
+                        st.success(f"Pilihan peserta favorit berhasil disimpan!")
                         st.rerun()
             else:
                 st.warning("⚠️ Belum ada data peserta yang tersedia.")

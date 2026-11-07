@@ -25,9 +25,6 @@ st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 # ==============================================================================
 # NATIVE ROUTING STREAMLIT...
 # ==============================================================================
-# ==============================================================================
-# NATIVE ROUTING STREAMLIT...
-# ==============================================================================
 if hasattr(st, "navigation") and hasattr(st, "Page"):
     page_juri = st.Page(
         juri_view.render_juri_portal,
@@ -44,8 +41,7 @@ if hasattr(st, "navigation") and hasattr(st, "Page"):
         url_path="admin_masuk"
     )
 
-    # UBAH DARI position="hidden" MENJADI sidebar (atau dikosongkan agar default muncul di sidebar)
-    pg = st.navigation([page_juri, page_admin], position="sidebar")
+    pg = st.navigation([page_juri, page_admin], position="hidden")
     pg.run()
 
 else:
