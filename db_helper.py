@@ -24,7 +24,7 @@ SCHEMA = {
     "juri": ["id_juri", "nama_juri", "jenis_instansi", "nama_instansi"],
     "peserta": ["id_peserta", "nama_peserta", "status"],
     "penilaian": ["id", "id_juri", "id_peserta",
-                  "k1", "k2", "k3", "k4", "rata_rata", "waktu_input", "catatan"],
+                  "k1", "k2", "k3", "k4", "waktu_input", "catatan", "rata_rata"],
     "favorit": ["waktu_input", "id_juri", "id_peserta"],
 }
 SESSION_KEYS = {

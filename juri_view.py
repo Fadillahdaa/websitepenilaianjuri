@@ -92,12 +92,8 @@ def _input_nilai(prefix, defaults):
     if lengkap and len(nilai) == len(KRITERIA):
         total = sum(nilai)
         rata = round(total / len(KRITERIA), 2)
-        rumus = " + ".join(str(n) for n in nilai)
         isi = f"""
-            <div style="color: #6B7280; font-size: 0.85rem; font-weight: 600;">
-                {rumus} = {total} ÷ {len(KRITERIA)} kriteria
-            </div>
-            <div style="margin-top: 4px;">
+            <div>
                 <span style="color: #6B7280; font-weight: 600;">Rata-rata / Skor Akhir:</span>
                 <span style="font-size: 1.7rem; font-weight: 800; color: #112250; margin-left: 10px;">{rata:.2f}</span>
             </div>"""
@@ -133,7 +129,7 @@ def _simpan_nilai(spreadsheet_obj, juri_id, peserta_id, skor, catatan):
     id_lama = str(df_pen[mask_lama]["id"].iloc[-1]) if mask_lama.any() else ""
     penilaian_id = id_lama or f"PEN-{int(time.time())}-{uuid.uuid4().hex[:4]}"
 
-    baris = [penilaian_id, juri_id, peserta_id, *skor, rata, ts, catatan]
+    baris = [penilaian_id, juri_id, peserta_id, *skor, ts, catatan, rata]
     row_dict = dict(zip(db_helper.SCHEMA["penilaian"], baris))
     st.session_state.db_penilaian = pd.concat(
         [df_pen[~mask_lama], pd.DataFrame([row_dict])], ignore_index=True
@@ -208,7 +204,6 @@ def _popup_nilai(nama, hasil, diperbarui):
     else:
         _popup("success", f"Nilai berhasil {aksi}",
                f"Nilai untuk **{nama}** berhasil {aksi}.\n\n"
-               f"- Total nilai: **{hasil['total']}**\n"
                f"- Rata-rata (skor akhir): **{hasil['rata']:.2f}**\n"
                f"- Waktu input: {hasil['waktu']} WIB")
 
