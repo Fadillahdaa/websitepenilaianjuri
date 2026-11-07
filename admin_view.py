@@ -21,7 +21,7 @@ _ADMIN_CSS = """
         width: 100%;
     }
     
-    /* Kartu Login Utuh & menyatu */
+    /* Kartu Login Utuh & Menyatu Menjadi 1 Kotak */
     .login-card-admin {
         background: #ffffff;
         border: 1px solid #E7E2CE !important;
@@ -30,7 +30,6 @@ _ADMIN_CSS = """
         box-shadow: 0 20px 40px rgba(17, 34, 80, 0.12), 0 2px 6px rgba(17, 34, 80, 0.05);
         width: 100%;
         max-width: 440px;
-        transition: transform 0.3s ease, box-shadow 0.3s ease;
     }
     
     /* Icon Header Lingkaran */
@@ -55,6 +54,7 @@ _ADMIN_CSS = """
         margin-bottom: 6px;
         letter-spacing: -0.5px;
     }
+    
     .login-subtitle {
         color: #5B6B8C;
         font-size: 0.9rem;
@@ -65,7 +65,7 @@ _ADMIN_CSS = """
     
     .login-divider {
         height: 1px;
-        background: linear-gradient(to right, rgba(231, 226, 206, 0.2), #E7E2CE, rgba(231, 226, 206, 0.2));
+        background: #E7E2CE;
         margin: 24px 0 20px 0;
     }
     
@@ -78,7 +78,7 @@ _ADMIN_CSS = """
         text-transform: uppercase;
     }
 
-    /* Hilangkan padding & border st.form bawaan */
+    /* Hilangkan padding & border st.form bawaan agar menyatu dalam kartu */
     [data-testid="stForm"] {
         border: none !important;
         padding: 0 !important;
@@ -86,14 +86,14 @@ _ADMIN_CSS = """
         background: transparent !important;
     }
 
-    /* Penyesuaian Input Field di dalam Form */
+    /* Styling Label Form */
     [data-testid="stForm"] label p {
         color: #112250 !important;
         font-weight: 700 !important;
         font-size: 0.88rem !important;
     }
     
-    /* Custom Styling Tombol Login */
+    /* Styling Tombol Login */
     [data-testid="stForm"] .stButton > button {
         background-color: #112250 !important;
         color: #ffffff !important;
@@ -104,13 +104,13 @@ _ADMIN_CSS = """
         border: none !important;
         box-shadow: 0 4px 12px rgba(17, 34, 80, 0.25) !important;
         margin-top: 10px !important;
+        width: 100% !important;
         transition: all 0.2s ease-in-out !important;
     }
     [data-testid="stForm"] .stButton > button:hover {
         background-color: #1a3375 !important;
         color: #3BF07D !important;
         box-shadow: 0 6px 16px rgba(17, 34, 80, 0.35) !important;
-        transform: translateY(-1px);
     }
 
     [data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"] {
@@ -124,18 +124,15 @@ _ADMIN_CSS = """
         background-color: #dc3545 !important; color: #ffffff !important;
     }
     [data-testid="stMain"] div[class*="st-key-del_"] .stButton > button:hover { background-color: #b02a37 !important; }
-    [data-testid="stMain"] div[class*="st-key-del_"] .stButton > button * { color: #ffffff !important; }
 
     div[class*="st-key-confirm_yes"] .stButton > button {
         background-color: #dc3545 !important; color: #ffffff !important;
         border: none !important; font-weight: 700 !important; width: 100% !important; border-radius: 10px !important;
     }
-    div[class*="st-key-confirm_yes"] .stButton > button * { color: #ffffff !important; }
     div[class*="st-key-confirm_no"] .stButton > button {
         background-color: #E7E2CE !important; color: #112250 !important;
         border: 1px solid #BEB7A7 !important; font-weight: 700 !important; width: 100% !important; border-radius: 10px !important;
     }
-    div[class*="st-key-confirm_no"] .stButton > button * { color: #112250 !important; }
 
     [data-testid="stDialog"] label p,
     [data-testid="stDialog"] h1, [data-testid="stDialog"] h4 { color: #112250 !important; }
@@ -248,19 +245,20 @@ def render_admin_portal():
         
         _, col_center, _ = st.columns([1, 1.3, 1])
         with col_center:
-            # Membuka pembungkus kartu HTML tunggal
-            st.markdown("""
+            # Menggabungkan seluruh elemen login ke dalam satu kontainer HTML card tunggal
+            login_html_content = """
                 <div class="login-container">
                     <div class="login-card-admin">
                         <div class="login-icon-badge">🔐</div>
                         <div class="login-title">Selamat Datang</div>
                         <div class="login-subtitle">Silakan masuk untuk mengakses sistem penilaian admin</div>
-            """, unsafe_allow_html=True)
+            """
+            st.markdown(login_html_content, unsafe_allow_html=True)
 
             with st.form("form_login_admin"):
                 username_input = st.text_input("Username", placeholder="Masukkan username admin")
                 password_input = st.text_input("Password", type="password", placeholder="Masukkan password admin")
-                btn_login = st.form_submit_button("Masuk Portal Admin ➔", use_container_width=True)
+                btn_login = st.form_submit_button("Masuk Portal Admin ➔")
 
                 if btn_login:
                     if username_input == "superadmin" and password_input == "adminsuper*3#12":
@@ -270,7 +268,7 @@ def render_admin_portal():
                     else:
                         st.error("Username atau password salah!")
 
-            # Menutup pembungkus kartu HTML tunggal
+            # Menutup kotak kartu HTML tunggal
             st.markdown("""
                         <div class="login-divider"></div>
                         <div class="login-footer-text">FINAL PROJECT PBK DIGITAL AI WORK EXHIBITION</div>
