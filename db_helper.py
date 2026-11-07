@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import time
 from datetime import datetime, timedelta, timezone
@@ -24,8 +25,8 @@ SCHEMA = {
     "juri": ["id_juri", "nama_juri", "jenis_instansi", "nama_instansi"],
     "peserta": ["id_peserta", "nama_peserta", "status"],
     "penilaian": ["id", "id_juri", "id_peserta",
-                  "k1", "k2", "k3", "k4", "catatan", "rata_rata", "waktu_input"],
-    "favorit": ["id_juri", "id_peserta", "waktu_input"],
+                  "k1", "k2", "k3", "k4", "waktu_input", "catatan", "rata_rata"],
+    "favorit": ["waktu_input", "id_juri", "id_peserta"],
 }
 SESSION_KEYS = {
     "jenis": "db_jenis",
@@ -174,6 +175,45 @@ def ensure_worksheets(spreadsheet):
         return False
 
 
+# ============================ PERBAIKAN DATA LAMA ============================
+_POLA_TANGGAL = re.compile(r"\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}")
+
+
+def _angka(v):
+    v = str(v).strip().replace(",", ".")
+    if not v:
+        return False
+    try:
+        float(v)
+        return True
+    except ValueError:
+        return False
+
+
+def perbaiki_urutan_penilaian(spreadsheet):
+    """
+    Perbaikan satu kali untuk baris lama sheet penilaian:
+    [.., k4, rata_rata, waktu_input, catatan]  ->  [.., k4, waktu_input, catatan, rata_rata]
+    Hanya baris yang berpola urutan lama yang diubah, jadi aman dijalankan berulang.
+    Return jumlah baris yang diperbaiki.
+    """
+    try:
+        ws = get_ws(spreadsheet, "penilaian")
+        semua = ws.get_all_values()
+        data = []
+        for no, r in enumerate(semua[1:], start=2):
+            r = list(r) + [""] * (10 - len(r))
+            if _angka(r[7]) and ":" in r[8] and _POLA_TANGGAL.search(r[8]):
+                baru = r[:7] + [r[8], r[9], r[7]]
+                data.append({"range": f"A{no}", "values": [baru]})
+        if data:
+            ws.batch_update(data)
+        return len(data)
+    except Exception as e:
+        print(f"Gagal memperbaiki urutan kolom penilaian: {e}")
+        return 0
+
+
 # ============================ SESSION STATE ============================
 def init_session_db():
     for nama, key in SESSION_KEYS.items():
@@ -219,6 +259,7 @@ def auto_connect_and_sync(force=False):
     if not st.session_state.get("_ws_ready"):
         if ensure_worksheets(spreadsheet_obj):
             st.session_state["_ws_ready"] = True
+            perbaiki_urutan_penilaian(spreadsheet_obj)
 
     terakhir = st.session_state.get("_last_sync", 0)
     if force or (time.time() - terakhir) > SYNC_TTL_DETIK:

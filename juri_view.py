@@ -165,7 +165,7 @@ def _simpan_nilai(spreadsheet_obj, juri_id, peserta_id, skor, catatan):
                 for n in sorted(baris_lama[1:], reverse=True):
                     ws.delete_rows(n)
             else:
-                ws.append_row(baris, value_input_option="USER_ENTERED")
+                ws.append_row(baris, value_input_option="RAW")
         except Exception as e:
             gagal, detail = True, f"{type(e).__name__}: {e}"
             print(f"Gagal simpan penilaian ke Sheet: {detail}")
@@ -200,7 +200,7 @@ def _simpan_favorit(spreadsheet_obj, juri_id, peserta_id):
             for n in sorted(baris_lama[1:], reverse=True):
                 ws.delete_rows(n)
         else:
-            ws.append_row(baris, value_input_option="USER_ENTERED")
+            ws.append_row(baris, value_input_option="RAW")
         return False, ""
     except Exception as e:
         detail = f"{type(e).__name__}: {e}"
