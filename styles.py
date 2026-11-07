@@ -56,6 +56,66 @@ html, body, .stApp, .stApp p, .stApp div, .stApp label, .stApp input,
     z-index: 999999 !important;
 }
 
+/* ================= HP: TOMBOL HAMBURGER (☰) =================
+   Tombol bawaan Streamlit dipakai sebagai pemicu, tampilannya diganti ☰. */
+@media (max-width: 768px) {
+    [data-testid="stExpandSidebarButton"],
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="collapsedControl"] {
+        position: fixed !important;
+        top: 10px !important;
+        left: 10px !important;
+        width: 46px !important;
+        height: 46px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background: %NAVY% !important;
+        border: 1px solid %NAVY_2% !important;
+        border-radius: 12px !important;
+        box-shadow: 0 4px 14px rgba(17, 34, 80, .35) !important;
+        z-index: 1000000 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+    }
+    /* isi asli (ikon panah) disembunyikan tetapi tetap bisa diklik */
+    [data-testid="stExpandSidebarButton"] > *,
+    [data-testid="stSidebarCollapsedControl"] > *,
+    [data-testid="collapsedControl"] > * {
+        position: absolute !important;
+        inset: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        opacity: 0 !important;
+    }
+    [data-testid="stExpandSidebarButton"]::before,
+    [data-testid="stSidebarCollapsedControl"]::before,
+    [data-testid="collapsedControl"]::before {
+        content: "☰";
+        color: %CHAMPAGNE%;
+        font-size: 24px;
+        line-height: 1;
+        pointer-events: none;
+    }
+    /* beri ruang agar konten tidak tertutup hamburger */
+    [data-testid="stMain"] .block-container,
+    .stApp section.main .block-container { padding-top: 4.2rem !important; }
+}
+
+/* Tombol tutup (X / «) di dalam sidebar harus tetap kecil & terlihat */
+section[data-testid="stSidebar"] [data-testid="stSidebarHeader"] button,
+section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button {
+    width: auto !important;
+    padding: 6px 8px !important;
+    background: transparent !important;
+    border: none !important;
+    color: %CHAMPAGNE% !important;
+}
+@media (min-width: 769px) {
+    /* di laptop sidebar dikunci terbuka, tombol tutup tidak diperlukan */
+    section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] { display: none !important; }
+}
+
 /* ================= SIDEBAR ================= */
 section[data-testid="stSidebar"],
 section[data-testid="stSidebar"] > div {
