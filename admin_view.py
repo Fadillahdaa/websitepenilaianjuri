@@ -75,6 +75,14 @@ _ADMIN_CSS = """
     [data-testid="stDialog"] label p,
     [data-testid="stDialog"] h1, [data-testid="stDialog"] h4 { color: #112250 !important; }
     [data-testid="stDialog"] [data-testid="stForm"] { border: none !important; box-shadow: none !important; padding: 0 !important; }
+
+    /* Expander ranking */
+    [data-testid="stMain"] [data-testid="stExpander"] {
+        background: #ffffff; border: 1px solid #E7E2CE !important; border-radius: 14px !important; margin-bottom: 8px;
+    }
+    [data-testid="stMain"] [data-testid="stExpander"] summary p {
+        color: #112250 !important; font-weight: 700 !important;
+    }
 </style>
 """
 
@@ -96,6 +104,8 @@ _HIDE_SIDEBAR_CSS = """
 </style>
 """
 
+_KRIT = ["k1", "k2", "k3", "k4"]
+
 
 # ============================ HELPER ============================
 def _exact_cells(ws, value, col):
@@ -106,6 +116,53 @@ def _show_flash(key):
     flash = st.session_state.pop(key, None)
     if flash:
         (st.success if flash[0] == "success" else st.warning)(flash[1])
+
+
+def _siapkan_ranking():
+    """Return (df_rank, df_detail, jumlah_baris_diabaikan)."""
+    df_n = st.session_state.db_penilaian.copy()
+    df_p = st.session_state.db_peserta
+    df_j = db_helper.ensure_cols(st.session_state.db_juri, "juri").copy()
+
+    if df_n.empty or df_p.empty or "id_peserta" not in df_n.columns:
+        return pd.DataFrame(), pd.DataFrame(), 0
+
+    # Hanya baris yang id_peserta-nya benar-benar ada di data peserta
+    valid = df_n["id_peserta"].isin(df_p["id_peserta"])
+    diabaikan = int((~valid).sum())
+    df_n = df_n[valid].copy()
+
+    for k in _KRIT:
+        df_n[k] = pd.to_numeric(df_n[k], errors="coerce") if k in df_n.columns else float("nan")
+    df_n["rata_juri"] = df_n[_KRIT].mean(axis=1)
+    df_n = df_n.dropna(subset=["rata_juri"])
+    if df_n.empty:
+        return pd.DataFrame(), pd.DataFrame(), diabaikan
+
+    # Jika satu juri menilai peserta yang sama berkali-kali, ambil yang terbaru
+    if "waktu_input" in df_n.columns:
+        df_n = df_n.sort_values("waktu_input")
+    df_n = df_n.drop_duplicates(subset=["id_juri", "id_peserta"], keep="last")
+
+    # Gabungkan identitas juri (nama juri + nama DUDIKA)
+    kolom_juri = [c for c in ["id_juri", "nama_juri", "jenis_instansi", "nama_instansi"] if c in df_j.columns]
+    df_detail = df_n.merge(df_j[kolom_juri], on="id_juri", how="left")
+    for c in ["nama_juri", "jenis_instansi", "nama_instansi"]:
+        if c not in df_detail.columns:
+            df_detail[c] = "-"
+        df_detail[c] = df_detail[c].fillna("-")
+
+    # Ranking = rata-rata dari rata-rata tiap juri
+    df_rank = (
+        df_detail.groupby("id_peserta")
+        .agg(nilai_akhir=("rata_juri", "mean"), jumlah_juri=("id_juri", "nunique"))
+        .reset_index()
+        .merge(df_p[["id_peserta", "nama_peserta"]], on="id_peserta", how="left")
+        .sort_values("nilai_akhir", ascending=False)
+        .reset_index(drop=True)
+    )
+    df_rank["peringkat"] = df_rank["nilai_akhir"].rank(method="min", ascending=False).astype(int)
+    return df_rank, df_detail, diabaikan
 
 
 @_dialog("✏️ Edit Peserta")
@@ -304,24 +361,19 @@ def render_admin_portal():
 
         st.markdown("<br>", unsafe_allow_html=True)
         col_rank, col_fav = st.columns([1.5, 1])
-        df_penilaian = st.session_state.db_penilaian.copy()
         df_peserta = st.session_state.db_peserta
 
         with col_rank:
             st.markdown("#### 🏆 Top 3 Ranking Sementara")
-            if not df_penilaian.empty and not df_peserta.empty and "id_peserta" in df_penilaian.columns:
-                k_cols = [c for c in ["k1", "k2", "k3", "k4"] if c in df_penilaian.columns]
-                if k_cols:
-                    for col in k_cols:
-                        df_penilaian[col] = pd.to_numeric(df_penilaian[col], errors="coerce").fillna(0)
-                    df_penilaian["nilai_rata"] = df_penilaian[k_cols].mean(axis=1)
-                    df_rank = df_penilaian.groupby("id_peserta")["nilai_rata"].mean().reset_index()
-                    df_rank = df_rank.merge(df_peserta[["id_peserta", "nama_peserta"]], on="id_peserta", how="left")
-                    df_rank = df_rank[["nama_peserta", "nilai_rata"]]
-                    df_rank.columns = ["Nama Peserta", "Nilai Rata-rata"]
-                    df_rank = df_rank.sort_values("Nilai Rata-rata", ascending=False).reset_index(drop=True)
-                    df_rank.index = df_rank.index + 1
-                    st.dataframe(df_rank.head(3).style.format({"Nilai Rata-rata": "{:.2f}"}), use_container_width=True)
+            # Memakai perhitungan yang sama dengan menu Ranking & Nilai
+            df_rank_dash, _, _ = _siapkan_ranking()
+            if not df_rank_dash.empty:
+                top3 = df_rank_dash.head(3)[["peringkat", "nama_peserta", "nilai_akhir"]].copy()
+                top3.columns = ["Peringkat", "Nama Peserta", "Nilai Rata-rata"]
+                st.dataframe(
+                    top3.style.format({"Nilai Rata-rata": "{:.2f}"}),
+                    use_container_width=True, hide_index=True,
+                )
             else:
                 st.info("Belum ada data penilaian.")
 
@@ -472,11 +524,40 @@ def render_admin_portal():
 
     # ---------------- 4. RANKING & NILAI ----------------
     elif menu_admin == "🏆 Ranking & Nilai":
-        st.markdown("#### 🏆 Klasemen Ranking Akhir & Seluruh Nilai Juri")
-        if not st.session_state.db_penilaian.empty:
-            st.dataframe(st.session_state.db_penilaian, use_container_width=True)
-        else:
+        st.markdown("#### 🏆 Klasemen Ranking Akhir")
+        st.caption("Peringkat berdasarkan rata-rata nilai seluruh juri (K1–K4). Klik nama peserta untuk melihat siapa saja yang menilai.")
+
+        df_rank, df_detail, diabaikan = _siapkan_ranking()
+
+        if df_rank.empty:
             st.info("Belum ada data penilaian masuk dari dewan juri.")
+        else:
+            if diabaikan:
+                st.warning(f"{diabaikan} baris penilaian diabaikan karena ID peserta tidak cocok dengan data peserta (cek sheet Penilaian).")
+
+            medali = {1: "🥇", 2: "🥈", 3: "🥉"}
+            for _, r in df_rank.iterrows():
+                ikon = medali.get(r["peringkat"], f"**#{r['peringkat']}**")
+                judul = f"{ikon}  {r['nama_peserta']}  —  Nilai Akhir {r['nilai_akhir']:.2f}  ({r['jumlah_juri']} juri)"
+                with st.expander(judul):
+                    det = df_detail[df_detail["id_peserta"] == r["id_peserta"]].copy()
+                    kolom_tampil = ["nama_juri", "jenis_instansi", "nama_instansi", *_KRIT, "rata_juri"]
+                    for opsional in ["catatan", "waktu_input"]:
+                        if opsional in det.columns:
+                            kolom_tampil.append(opsional)
+                    tampil = det[kolom_tampil].rename(columns={
+                        "nama_juri": "Nama Juri", "jenis_instansi": "Jenis Instansi",
+                        "nama_instansi": "Nama DUDIKA", "k1": "K1", "k2": "K2", "k3": "K3", "k4": "K4",
+                        "rata_juri": "Rata-rata", "catatan": "Catatan", "waktu_input": "Waktu Input",
+                    })
+                    st.dataframe(
+                        tampil.style.format({"Rata-rata": "{:.2f}"}),
+                        use_container_width=True, hide_index=True,
+                    )
+
+            belum = st.session_state.db_peserta[~st.session_state.db_peserta["id_peserta"].isin(df_rank["id_peserta"])]
+            if not belum.empty:
+                st.caption("Belum dinilai: " + ", ".join(belum["nama_peserta"].tolist()))
 
     # ---------------- 5. PESERTA FAVORIT ----------------
     elif menu_admin == "⭐ Peserta Favorit":
