@@ -31,24 +31,17 @@ _ADMIN_CSS = """
         font-weight: 700 !important;
         font-size: 0.88rem !important;
     }
-    
-    /* Tombol Login berada di tengah */
-    [data-testid="stForm"] .stButton {
-        display: flex;
-        justify-content: center;
-    }
 
     [data-testid="stForm"] .stButton > button {
         background-color: #112250 !important;
         color: #ffffff !important;
         border-radius: 12px !important;
-        padding: 12px 30px !important;
+        padding: 12px 20px !important;
         font-weight: 700 !important;
         font-size: 1rem !important;
         border: none !important;
         box-shadow: 0 4px 12px rgba(17, 34, 80, 0.25) !important;
         margin-top: 15px !important;
-        width: 70% !important;
         transition: all 0.2s ease-in-out !important;
     }
     
@@ -203,7 +196,11 @@ def render_admin_portal():
 
                 username_input = st.text_input("Username", placeholder="Masukkan username admin")
                 password_input = st.text_input("Password", type="password", placeholder="Masukkan password admin")
-                btn_login = st.form_submit_button("Masuk Panel Admin ➔")
+                
+                # Membagi kolom di dalam form agar tombol pas berada di tengah
+                _, btn_col, _ = st.columns([0.3, 2, 0.3])
+                with btn_col:
+                    btn_login = st.form_submit_button("Masuk Panel Admin ➔", use_container_width=True)
 
                 if btn_login:
                     if username_input == "superadmin" and password_input == "adminsuper*3#12":
