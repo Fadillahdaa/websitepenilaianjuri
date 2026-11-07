@@ -77,14 +77,14 @@ _ADMIN_CSS = """
         font-size: 1.75rem;
         font-weight: 800;
         text-align: center;
-        margin-bottom: 6px;
+        margin-bottom: 4px;
     }
     
     .login-box-subtitle {
         color: #8A93A8;
         font-size: 0.82rem;
         text-align: center;
-        margin-bottom: 28px;
+        margin-bottom: 24px;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 1px;
@@ -261,7 +261,7 @@ def render_admin_portal():
         styles.inject(dark_stage=True)
         st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
         
-        # 1. Membuka kontainer utama split-screen & sisi kiri banner
+        # Membuka pembungkus utama split-screen
         st.markdown("""
             <div class="split-login-wrapper">
                 <div class="login-left-banner">
@@ -271,12 +271,15 @@ def render_admin_portal():
                 </div>
                 <div class="login-right-container">
                     <div class="login-box-content">
-                        <div class="login-box-title">ADMIN LOGIN</div>
-                        <div class="login-box-subtitle">PORTAL MANAJEMEN EKSIBISI</div>
         """, unsafe_allow_html=True)
 
-        # 2. Form login diletakkan di dalam kotak putih yang sama
+        # Form login membungkus judul, input, dan tombol secara utuh di dalam kotak kanan
         with st.form("form_login_admin"):
+            st.markdown("""
+                <div class="login-box-title">ADMIN LOGIN</div>
+                <div class="login-box-subtitle">PORTAL MANAJEMEN EKSIBISI</div>
+            """, unsafe_allow_html=True)
+
             username_input = st.text_input("Username", placeholder="Masukkan username admin")
             password_input = st.text_input("Password", type="password", placeholder="Masukkan password admin")
             btn_login = st.form_submit_button("Masuk Panel Admin ➔")
@@ -289,7 +292,7 @@ def render_admin_portal():
                 else:
                     st.error("Username atau password salah!")
 
-        # 3. Menutup seluruh tag div pembungkus kanan & wrapper utama dengan benar
+        # Menutup pembungkus kontainer kanan dan wrapper utama
         st.markdown("""
                     </div>
                 </div>
