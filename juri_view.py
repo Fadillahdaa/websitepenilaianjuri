@@ -126,10 +126,12 @@ def render_juri_portal():
             """, unsafe_allow_html=True)
 
         with col_form:
-            df_jenis = st.session_state.db_jenis
-            daftar_jenis = sorted({
-                str(x).strip() for x in df_jenis["nama_jenis"] if str(x).strip()
-            }) if not df_jenis.empty else []
+            # Pilihan dropdown diisi oleh admin (sheet "jenis")
+            df_jenis = st.session_state.get("db_jenis", pd.DataFrame(columns=["id_jenis", "nama_jenis"]))
+            if df_jenis is not None and not df_jenis.empty and "nama_jenis" in df_jenis.columns:
+                daftar_jenis = sorted({str(x).strip() for x in df_jenis["nama_jenis"] if str(x).strip()})
+            else:
+                daftar_jenis = []
             PLACEHOLDER = "-- Pilih Instansi dari Daftar --"
 
             with st.form("form_login_juri"):
@@ -140,11 +142,17 @@ def render_juri_portal():
                     </div>
                 """, unsafe_allow_html=True)
 
-                input_nama_juri = st.text_input("Nama Lengkap*", placeholder="Contoh: Ahmad Subarjo")
-                jenis_dipilih = st.selectbox("Pilih Instansi Asal*", options=[PLACEHOLDER] + daftar_jenis)
+                input_nama_juri = st.text_input(
+                    "Nama Lengkap*",
+                    placeholder="Contoh: Ahmad Subarjo"
+                )
+                jenis_dipilih = st.selectbox(
+                    "Pilih Instansi Asal*",
+                    options=[PLACEHOLDER] + daftar_jenis
+                )
                 nama_instansi_input = st.text_input(
                     "Nama Instansi*",
-                    placeholder="Contoh: Dinas Pendidikan Kota Madiun",
+                    placeholder="Contoh: Dinas Pendidikan Kota Madiun"
                 )
 
                 if not daftar_jenis:
@@ -175,8 +183,8 @@ def render_juri_portal():
                         # ---- Instansi (cocokkan jenis + nama, buat baru bila belum ada) ----
                         df_ins = db_helper.ensure_instansi_cols(st.session_state.db_instansi)
                         matched_ins = df_ins[
-                            (df_ins["jenis_instansi"].str.lower() == jenis_dipilih.lower())
-                            & (df_ins["nama_instansi"].str.lower() == instansi_nama.lower())
+                            (df_ins["jenis_instansi"].astype(str).str.lower() == jenis_dipilih.lower())
+                            & (df_ins["nama_instansi"].astype(str).str.lower() == instansi_nama.lower())
                         ]
                         if not matched_ins.empty:
                             instansi_id_final = matched_ins.iloc[0]["id_instansi"]
@@ -196,7 +204,7 @@ def render_juri_portal():
                             if not ok:
                                 st.warning(f"Instansi baru gagal ditulis ke Google Sheet: {serr}")
 
-                        # ---- Juri (cocokkan nama + instansi) ----
+                        # ---- Juri (cocokkan nama + instansi, bukan nama saja) ----
                         df_juri = st.session_state.db_juri
                         if not df_juri.empty:
                             existing_juri = df_juri[
@@ -228,7 +236,7 @@ def render_juri_portal():
                             "is_logged_in": True,
                             "id_juri": juri_id_final,
                             "nama": nama_final,
-                            "id_instansi": instansi_id_final,
+                            "id_instansi": instansi_id_final
                         }
                         st.rerun()
 
@@ -246,7 +254,9 @@ def render_juri_portal():
                 st.session_state.db_instansi['id_instansi'].astype(str) == str(instansi_id_aktif)
             ]
             if not m_ins.empty:
-                instansi_nama_aktif = m_ins.iloc[0]['nama_instansi']
+                jenis_aktif = str(m_ins.iloc[0].get('jenis_instansi', '') or '').strip()
+                nama_aktif = m_ins.iloc[0]['nama_instansi']
+                instansi_nama_aktif = f"{jenis_aktif} · {nama_aktif}" if jenis_aktif else nama_aktif
 
         total_peserta_count = len(st.session_state.db_peserta)
 
