@@ -126,9 +126,22 @@ def render_juri_portal():
             """, unsafe_allow_html=True)
 
         with col_form:
-            df_instansi = st.session_state.db_instansi
-            daftar_instansi_nama = df_instansi['nama_instansi'].tolist() if not df_instansi.empty else []
+            df_instansi = db_helper.ensure_instansi_cols(st.session_state.db_instansi)
+            st.session_state.db_instansi = df_instansi
+
             PLACEHOLDER = "-- Pilih Instansi dari Daftar --"
+
+            # Label dropdown: "Jenis · Nama Instansi", urut per jenis lalu nama
+            map_label_ke_id = {}
+            if not df_instansi.empty:
+                df_urut = df_instansi.assign(
+                    _jenis=df_instansi["jenis_instansi"].astype(str).str.strip()
+                ).sort_values(["_jenis", "nama_instansi"])
+                for _, r in df_urut.iterrows():
+                    label = f"{r['_jenis']} · {r['nama_instansi']}" if r["_jenis"] else str(r["nama_instansi"])
+                    if label in map_label_ke_id:  # jaga-jaga bila ada nama kembar
+                        label = f"{label} [{r['id_instansi']}]"
+                    map_label_ke_id[label] = r["id_instansi"]
 
             with st.form("form_login_juri"):
                 st.markdown("""
@@ -142,70 +155,53 @@ def render_juri_portal():
                     "Nama Lengkap*",
                     placeholder="Contoh: Ahmad Subarjo"
                 )
-                selected_instansi = st.selectbox("Pilih Instansi Asal*", options=[PLACEHOLDER] + daftar_instansi_nama)
-                custom_instansi = st.text_input(
-                    "Atau ketik instansi baru jika belum ada di daftar",
-                    placeholder="Contoh: PT Inovasi Digital"
+                selected_instansi = st.selectbox(
+                    "Pilih Instansi Asal*",
+                    options=[PLACEHOLDER] + list(map_label_ke_id.keys())
                 )
 
-                # Menggunakan kolom internal form agar tombol di tengah secara rapi
+                if not map_label_ke_id:
+                    st.info("Daftar instansi belum tersedia. Silakan hubungi administrator.")
+
                 _, btn_col, _ = st.columns([0.2, 2, 0.2])
                 with btn_col:
-                    btn_masuk = st.form_submit_button("Masuk ke Sistem Penilaian", use_container_width=True)
+                    btn_masuk = st.form_submit_button(
+                        "Masuk ke Sistem Penilaian",
+                        use_container_width=True,
+                        disabled=not map_label_ke_id,
+                    )
 
                 st.markdown('<div class="login-foot">FINAL PROJECT PBK DIGITAL AI WORK EXHIBITION</div>',
                             unsafe_allow_html=True)
 
                 if btn_masuk:
-                    if custom_instansi.strip():
-                        instansi_final_nama = custom_instansi.strip()
-                    elif selected_instansi != PLACEHOLDER:
-                        instansi_final_nama = selected_instansi
-                    else:
-                        instansi_final_nama = ""
+                    nama_final = input_nama_juri.strip()
 
-                    if not input_nama_juri.strip():
+                    if not nama_final:
                         st.error("Nama lengkap juri wajib diisi!")
-                    elif not instansi_final_nama:
-                        st.error("Pilih instansi dari daftar atau ketik instansi baru.")
+                    elif selected_instansi == PLACEHOLDER:
+                        st.error("Silakan pilih instansi Anda dari daftar.")
                     else:
-                        nama_final = input_nama_juri.strip()
+                        instansi_id_final = map_label_ke_id[selected_instansi]
 
-                        # ---- Instansi ----
-                        df_ins = st.session_state.db_instansi
-                        if not df_ins.empty:
-                            matched_ins = df_ins[df_ins['nama_instansi'].str.lower() == instansi_final_nama.lower()]
-                        else:
-                            matched_ins = df_ins
-                        if not matched_ins.empty:
-                            instansi_id_final = matched_ins.iloc[0]['id_instansi']
-                        else:
-                            instansi_id_final = db_helper.next_id(df_ins, "INS", "id_instansi")
-                            new_ins_row = {"id_instansi": instansi_id_final, "nama_instansi": instansi_final_nama}
-                            st.session_state.db_instansi = pd.concat(
-                                [df_ins, pd.DataFrame([new_ins_row])], ignore_index=True
-                            )
-                            ok, serr = db_helper.safe_append(
-                                spreadsheet_obj, "instansi", [instansi_id_final, instansi_final_nama]
-                            )
-                            if not ok:
-                                st.warning(f"Instansi baru gagal ditulis ke Google Sheet: {serr}")
-
-                        # ---- Juri ----
+                        # ---- Juri (cocokkan nama + instansi, bukan nama saja) ----
                         df_juri = st.session_state.db_juri
                         if not df_juri.empty:
-                            existing_juri = df_juri[df_juri['nama_juri'].str.lower() == nama_final.lower()]
+                            existing_juri = df_juri[
+                                (df_juri["nama_juri"].str.lower() == nama_final.lower())
+                                & (df_juri["id_instansi"].astype(str) == str(instansi_id_final))
+                            ]
                         else:
                             existing_juri = df_juri
 
                         if not existing_juri.empty:
-                            juri_id_final = existing_juri.iloc[0]['id_juri']
+                            juri_id_final = existing_juri.iloc[0]["id_juri"]
                         else:
                             juri_id_final = db_helper.next_id(df_juri, "JUR", "id_juri")
                             new_juri_row = {
                                 "id_juri": juri_id_final,
                                 "nama_juri": nama_final,
-                                "id_instansi": instansi_id_final
+                                "id_instansi": instansi_id_final,
                             }
                             st.session_state.db_juri = pd.concat(
                                 [df_juri, pd.DataFrame([new_juri_row])], ignore_index=True
@@ -220,7 +216,7 @@ def render_juri_portal():
                             "is_logged_in": True,
                             "id_juri": juri_id_final,
                             "nama": nama_final,
-                            "id_instansi": instansi_id_final
+                            "id_instansi": instansi_id_final,
                         }
                         st.rerun()
 

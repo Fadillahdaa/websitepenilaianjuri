@@ -18,7 +18,7 @@ SCOPES = [
 
 # Nama sheet (SEMUA HURUF KECIL) -> header kolom
 SCHEMA = {
-    "instansi": ["id_instansi", "nama_instansi"],
+    "instansi": ["id_instansi", "nama_instansi", "jenis_instansi"],
     "juri": ["id_juri", "nama_juri", "id_instansi"],
     "peserta": ["id_peserta", "nama_peserta", "status"],
     "penilaian": ["id", "id_juri", "id_instansi", "id_peserta",
@@ -34,6 +34,18 @@ SESSION_KEYS = {
 }
 
 SYNC_TTL_DETIK = 15  # jarak minimal antar sync otomatis (hindari rate limit Google)
+
+
+# ============================ HELPER DATA INSTANSI ============================
+def ensure_instansi_cols(df):
+    """Pastikan df instansi punya kolom lengkap (aman untuk data lama)."""
+    if df is None or not isinstance(df, pd.DataFrame):
+        return pd.DataFrame(columns=SCHEMA["instansi"])
+    df = df.copy()
+    for col in SCHEMA["instansi"]:
+        if col not in df.columns:
+            df[col] = ""
+    return df
 
 
 # ============================ HELPER ID ============================

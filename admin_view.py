@@ -382,25 +382,47 @@ def render_admin_portal():
     # ---------------- 3. KELOLA INSTANSI ----------------
     elif menu_admin == "👥 Kelola Instansi":
         st.markdown("#### 👥 Kelola Data Instansi Asal")
+        st.caption("Data di sini akan muncul sebagai pilihan dropdown pada halaman login Dewan Juri.")
         _show_flash("flash_instansi")
+
+        st.session_state.db_instansi = db_helper.ensure_instansi_cols(st.session_state.db_instansi)
+
+        PH_JENIS = "-- Pilih jenis yang sudah ada --"
+        jenis_tersedia = sorted({
+            str(j).strip() for j in st.session_state.db_instansi["jenis_instansi"] if str(j).strip()
+        })
 
         with st.expander("➕ Tambah Instansi Baru", expanded=False):
             with st.form("form_tambah_instansi", clear_on_submit=True):
-                nama_ins = st.text_input("Nama Instansi / Perusahaan*", placeholder="Contoh: PT Inovasi Digital / Universitas")
+                pilih_jenis = st.selectbox("Jenis Instansi (pilih yang sudah ada)", [PH_JENIS] + jenis_tersedia)
+                jenis_baru = st.text_input(
+                    "Atau ketik jenis baru",
+                    placeholder="Contoh: Dinas / LPKS / DU/DI",
+                )
+                nama_ins = st.text_input("Nama Instansi*", placeholder="Contoh: Dinas Pendidikan Kota Madiun")
+
                 if st.form_submit_button("Simpan Instansi ➔"):
                     df_ins = st.session_state.db_instansi
-                    if not nama_ins.strip():
+                    nama_bersih = nama_ins.strip()
+                    jenis_final = jenis_baru.strip() or ("" if pilih_jenis == PH_JENIS else pilih_jenis)
+
+                    if not jenis_final:
+                        st.error("Jenis instansi wajib diisi (pilih yang ada atau ketik baru).")
+                    elif not nama_bersih:
                         st.error("Nama instansi wajib diisi!")
-                    elif not df_ins.empty and nama_ins.strip().lower() in df_ins["nama_instansi"].str.lower().tolist():
-                        st.error("Instansi tersebut sudah terdaftar.")
+                    elif not df_ins.empty and (
+                        (df_ins["nama_instansi"].str.lower() == nama_bersih.lower())
+                        & (df_ins["jenis_instansi"].str.lower() == jenis_final.lower())
+                    ).any():
+                        st.error(f"{nama_bersih} sudah terdaftar pada jenis {jenis_final}.")
                     else:
                         new_id = db_helper.next_id(df_ins, "INS", "id_instansi")
-                        new_row = {"id_instansi": new_id, "nama_instansi": nama_ins.strip()}
+                        new_row = {"id_instansi": new_id, "nama_instansi": nama_bersih, "jenis_instansi": jenis_final}
                         st.session_state.db_instansi = pd.concat([df_ins, pd.DataFrame([new_row])], ignore_index=True)
 
-                        ok, serr = db_helper.safe_append(spreadsheet_obj, "instansi", [new_id, nama_ins.strip()])
+                        ok, serr = db_helper.safe_append(spreadsheet_obj, "instansi", [new_id, nama_bersih, jenis_final])
                         st.session_state["flash_instansi"] = (
-                            ("success", f"Instansi **{nama_ins.strip()}** berhasil ditambahkan!") if ok
+                            ("success", f"{jenis_final} **{nama_bersih}** berhasil ditambahkan!") if ok
                             else ("warning", f"Instansi tersimpan di aplikasi, tetapi gagal menulis ke Google Sheet. ({serr})")
                         )
                         st.rerun()
@@ -410,15 +432,33 @@ def render_admin_portal():
         if df_ins.empty:
             st.info("Belum ada data instansi.")
         else:
-            lebar = [0.5, 4.0]
+            lebar = [0.5, 1.2, 3.5, 1.1]
             head = st.columns(lebar, vertical_alignment="center")
-            for kolom, judul in zip(head, ["No", "Nama Instansi"]):
-                kolom.markdown(f"**{judul}**")
+            for kolom, judul in zip(head, ["No", "Jenis", "Nama Instansi", ""]):
+                kolom.markdown(f"**{judul}**" if judul else "")
             for no, (_, r) in enumerate(df_ins.iterrows(), start=1):
                 with st.container(border=True):
                     c = st.columns(lebar, vertical_alignment="center")
                     c[0].write(no)
-                    c[1].markdown(f"**{r['nama_instansi']}**  \n<span style='color:#6B7280; font-size:.78rem;'>{r['id_instansi']}</span>", unsafe_allow_html=True)
+                    c[1].write(r["jenis_instansi"] or "-")
+                    c[2].markdown(f"**{r['nama_instansi']}**  \n<span style='color:#6B7280; font-size:.78rem;'>{r['id_instansi']}</span>", unsafe_allow_html=True)
+                    if c[3].button("🗑️ Hapus", key=f"del_ins_{r['id_instansi']}"):
+                        st.session_state.db_instansi = df_ins[df_ins["id_instansi"] != r["id_instansi"]].reset_index(drop=True)
+                        gagal = ""
+                        if spreadsheet_obj:
+                            try:
+                                ws = db_helper.get_ws(spreadsheet_obj, "instansi")
+                                for row in sorted({x.row for x in _exact_cells(ws, r["id_instansi"], 1)}, reverse=True):
+                                    ws.delete_rows(row)
+                            except Exception as e:
+                                gagal = f"{type(e).__name__}: {e}"
+                        else:
+                            gagal = "Koneksi ke Google Sheet tidak tersedia."
+                        st.session_state["flash_instansi"] = (
+                            ("warning", f"Dihapus di aplikasi, gagal di Google Sheet. ({gagal})") if gagal
+                            else ("success", f"Instansi **{r['nama_instansi']}** berhasil dihapus.")
+                        )
+                        st.rerun()
 
     # ---------------- 4. RANKING & NILAI ----------------
     elif menu_admin == "🏆 Ranking & Nilai":
