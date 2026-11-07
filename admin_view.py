@@ -16,7 +16,7 @@ _ADMIN_CSS = """
         background-color: #F5F4F0;
     }
     
-    /* Styling Card Putih Utama di sebelah kanan */
+    /* Styling Card Putih Utama */
     [data-testid="stForm"] {
         background: #ffffff !important;
         border: 1px solid #E7E2CE !important;
@@ -32,20 +32,26 @@ _ADMIN_CSS = """
         font-size: 0.88rem !important;
     }
     
-    /* Tombol Login */
+    /* Tombol Login berada di tengah */
+    [data-testid="stForm"] .stButton {
+        display: flex;
+        justify-content: center;
+    }
+
     [data-testid="stForm"] .stButton > button {
         background-color: #112250 !important;
         color: #ffffff !important;
         border-radius: 12px !important;
-        padding: 12px 20px !important;
+        padding: 12px 30px !important;
         font-weight: 700 !important;
         font-size: 1rem !important;
         border: none !important;
         box-shadow: 0 4px 12px rgba(17, 34, 80, 0.25) !important;
         margin-top: 15px !important;
-        width: 100% !important;
+        width: 70% !important;
         transition: all 0.2s ease-in-out !important;
     }
+    
     [data-testid="stForm"] .stButton > button:hover {
         background-color: #1a3375 !important;
         color: #3BF07D !important;
@@ -177,14 +183,13 @@ def render_admin_portal():
     if "admin_logged_in" not in st.session_state:
         st.session_state.admin_logged_in = False
 
-    # ================= FORM LOGIN ADMIN (HANYA KOTAK LOGIN) =================
+    # ================= FORM LOGIN ADMIN (TAMPIL DI TENGAH) =================
     if not st.session_state.admin_logged_in:
         styles.inject(dark_stage=True)
         st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
         
         st.markdown("<br><br>", unsafe_allow_html=True)
         
-        # Membuat form login tampil di tengah tanpa banner kiri
         _, col_center, _ = st.columns([1, 1.2, 1])
 
         with col_center:
@@ -428,7 +433,7 @@ def render_admin_portal():
 
     # ---------------- 5. PESERTA FAVORIT ----------------
     elif menu_admin == "⭐ Peserta Favorit":
-        st.markdown("#### ⭐ Akumulasi Pilihan Peserta Favorit Dewan juri")
+        st.markdown("#### ⭐ Akumulasi Pilihan Peserta Favorit Dewan Juri")
         if not st.session_state.db_favorit.empty:
             st.dataframe(st.session_state.db_favorit, use_container_width=True)
         else:
