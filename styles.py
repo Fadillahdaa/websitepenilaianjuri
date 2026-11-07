@@ -24,17 +24,13 @@ html, body, .stApp, .stApp p, .stApp div, .stApp label, .stApp input,
 }
 
 %STAGE%
-/* ================= SEMBUNYIKAN TOOLBAR & HEADER STREAMLIT ================= */
-[data-testid="stHeader"] { 
-    background: transparent !important; 
-    display: none !important; 
-    visibility: hidden !important; 
-}
-[data-testid="stToolbar"] { 
-    display: none !important; 
-    visibility: hidden !important; 
-    opacity: 0 !important; 
-}
+
+/* ================= HEADER STREAMLIT (TETAP TAMPIL) =================
+   Header & toolbar tidak disembunyikan agar tombol buka/tutup sidebar
+   selalu tersedia. Latar dibuat transparan supaya menyatu dengan tema. */
+[data-testid="stHeader"] { background: transparent !important; }
+
+/* Sembunyikan hanya navigasi multipage bawaan (menu sidebar buatan sendiri tetap tampil) */
 [data-testid="stSidebarNav"], [data-testid="stSidebarNavItems"] { display: none !important; }
 
 /* ================= SIDEBAR ================= */
