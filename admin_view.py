@@ -453,6 +453,6 @@ def render_admin_portal():
 
     st.markdown("""
         <div style="text-align: center; margin-top: 40px; padding: 15px; color: #6B7280; font-size: 0.75rem;">
-            FINAL PROJECT PBK DIGITAL AI WORK EXHIBITION • Panel Administrator
+            FINAL PROJECT DIGITAL AI WORK EXHIBITION • Panel Administrator
         </div>
     """, unsafe_allow_html=True)

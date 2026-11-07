@@ -77,7 +77,7 @@ def render_juri_portal():
                         <div class="mark">🏆</div>
                         <div class="name">FINAL PROJECT PBK DIGITAL AI</div>
                     </div>
-                    <div class="login-title">WORK EXHIBITION</div>
+                    <div class="login-title">AI WORK EXHIBITION</div>
                     <div class="login-tagline">"Innovating with AI, Building a Smarter Future"</div>
                     <div class="login-info">
                         <div class="t">Portal Penilaian Resmi Dewan Juri</div>
@@ -102,7 +102,7 @@ def render_juri_portal():
 
                 input_nama_juri = st.text_input(
                     "Nama Lengkap*",
-                    placeholder="Contoh: Dr. Ir. Ahmad Subarjo, M.Kom"
+                    placeholder="Contoh: Ahmad Subarjo"
                 )
                 selected_instansi = st.selectbox("Pilih Instansi Asal*", options=[PLACEHOLDER] + daftar_instansi_nama)
                 custom_instansi = st.text_input(
@@ -508,6 +508,6 @@ def render_juri_portal():
 
     st.markdown("""
         <div style="text-align: center; margin-top: 50px; padding: 20px; border-top: 1px solid #E7E2CE; color: #BEB7A7; font-size: 0.8rem;">
-            FINAL PROJECT PBK DIGITAL AI WORK EXHIBITION • Portal Dewan Juri
+            FINAL PROJECT DIGITAL AI WORK EXHIBITION • Portal Dewan Juri
         </div>
     """, unsafe_allow_html=True)
