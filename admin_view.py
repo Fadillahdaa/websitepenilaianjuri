@@ -200,7 +200,7 @@ def render_admin_portal():
                 # Membagi kolom di dalam form agar tombol pas berada di tengah
                 _, btn_col, _ = st.columns([0.3, 2, 0.3])
                 with btn_col:
-                    btn_login = st.form_submit_button("Masuk Panel Admin ➔", use_container_width=True)
+                    btn_login = st.form_submit_button("Masuk Panel Admin", use_container_width=True)
 
                 if btn_login:
                     if username_input == "superadmin" and password_input == "adminsuper*3#12":
@@ -334,7 +334,7 @@ def render_admin_portal():
             with st.form("form_tambah_peserta", clear_on_submit=True):
                 p_nama = st.text_input("Nama Lengkap Peserta / Proyek*")
 
-                if st.form_submit_button("Simpan Peserta ➔"):
+                if st.form_submit_button("Simpan Peserta"):
                     df_p = st.session_state.db_peserta
                     if not p_nama.strip():
                         st.error("Nama peserta wajib diisi!")
@@ -387,7 +387,7 @@ def render_admin_portal():
         with st.expander("➕ Tambah Instansi Baru", expanded=False):
             with st.form("form_tambah_instansi", clear_on_submit=True):
                 nama_ins = st.text_input("Nama Instansi / Perusahaan*", placeholder="Contoh: PT Inovasi Digital / Universitas")
-                if st.form_submit_button("Simpan Instansi ➔"):
+                if st.form_submit_button("Simpan Instansi"):
                     df_ins = st.session_state.db_instansi
                     if not nama_ins.strip():
                         st.error("Nama instansi wajib diisi!")
