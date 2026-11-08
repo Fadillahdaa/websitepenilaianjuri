@@ -514,10 +514,21 @@ def render_admin_portal():
         if df_juri.empty:
             st.info("Belum ada juri yang masuk ke sistem.")
         else:
+                    df_juri = db_helper.ensure_cols(st.session_state.db_juri, "juri")
+        if df_juri.empty:
+            st.info("Belum ada juri yang masuk ke sistem.")
+        else:
+            df_tampil = df_juri.copy()
+            df_tampil["terima_magang"] = (
+                df_tampil["terima_magang"].astype(str).str.strip()
+                .map({"Ya": "✅ Menerima", "Tidak": "❌ Tidak menerima"})
+                .fillna("⏳ Belum diisi")
+            )
             st.dataframe(
-                df_juri.rename(columns={
+                df_tampil.rename(columns={
                     "id_juri": "ID", "nama_juri": "Nama Juri",
                     "jenis_instansi": "Instansi Asal", "nama_instansi": "Nama Instansi",
+                    "terima_magang": "Terima Magang",
                 }),
                 use_container_width=True, hide_index=True,
             )
