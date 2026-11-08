@@ -1,5 +1,6 @@
 import io
 import base64
+import time
 import streamlit as st
 import pandas as pd
 from PIL import Image, ImageOps
@@ -12,10 +13,6 @@ if _dialog is None:
 
 _ADMIN_CSS = """
 <style>
-    .stApp {
-        background-color: #F5F4F0;
-    }
-    
     /* Styling Card Putih Utama */
     [data-testid="stForm"] {
         background: #ffffff !important;
@@ -89,7 +86,6 @@ _ADMIN_CSS = """
 
 _HIDE_SIDEBAR_CSS = """
 <style>
-
     /* Halaman login: sembunyikan sidebar kosong (menimpa aturan di styles.py) */
     html body section[data-testid="stSidebar"],
     html body section[data-testid="stSidebar"][aria-expanded="false"],
@@ -127,7 +123,6 @@ def _siapkan_ranking():
     if df_n.empty or df_p.empty or "id_peserta" not in df_n.columns:
         return pd.DataFrame(), pd.DataFrame(), 0
 
-    # Hanya baris yang id_peserta-nya benar-benar ada di data peserta
     valid = df_n["id_peserta"].isin(df_p["id_peserta"])
     diabaikan = int((~valid).sum())
     df_n = df_n[valid].copy()
@@ -139,12 +134,10 @@ def _siapkan_ranking():
     if df_n.empty:
         return pd.DataFrame(), pd.DataFrame(), diabaikan
 
-    # Jika satu juri menilai peserta yang sama berkali-kali, ambil yang terbaru
     if "waktu_input" in df_n.columns:
         df_n = df_n.sort_values("waktu_input")
     df_n = df_n.drop_duplicates(subset=["id_juri", "id_peserta"], keep="last")
 
-    # Gabungkan identitas juri (nama juri + nama DUDIKA)
     kolom_juri = [c for c in ["id_juri", "nama_juri", "jenis_instansi", "nama_instansi"] if c in df_j.columns]
     df_detail = df_n.merge(df_j[kolom_juri], on="id_juri", how="left")
     for c in ["nama_juri", "jenis_instansi", "nama_instansi"]:
@@ -152,7 +145,6 @@ def _siapkan_ranking():
             df_detail[c] = "-"
         df_detail[c] = df_detail[c].fillna("-")
 
-    # Ranking = rata-rata dari rata-rata tiap juri
     df_rank = (
         df_detail.groupby("id_peserta")
         .agg(nilai_akhir=("rata_juri", "mean"), jumlah_juri=("id_juri", "nunique"))
@@ -248,12 +240,26 @@ def dialog_hapus_peserta(id_peserta, nama, spreadsheet_obj):
 
 # ============================ HALAMAN ADMIN ============================
 def render_admin_portal():
+    # Tentukan batas waktu sesi aktif (dalam jam)
+    ADMIN_SESSION_HOURS = 2
+
     if "admin_logged_in" not in st.session_state:
-        st.session_state.admin_logged_in = False
+        auth_param = st.query_params.get("admin_auth")
+        expire_param = st.query_params.get("admin_expire", 0)
+        
+        # Cek apakah token ada dan belum melewati batas waktu kedaluwarsa
+        if auth_param == "true" and time.time() < float(expire_param or 0):
+            st.session_state.admin_logged_in = True
+        else:
+            st.session_state.admin_logged_in = False
+            if "admin_auth" in st.query_params:
+                del st.query_params["admin_auth"]
+            if "admin_expire" in st.query_params:
+                del st.query_params["admin_expire"]
 
     # ================= FORM LOGIN ADMIN (TAMPIL DI TENGAH) =================
     if not st.session_state.admin_logged_in:
-        styles.inject(dark_stage=True)
+        styles.inject(dark_stage=True) 
         st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
         st.markdown(_HIDE_SIDEBAR_CSS, unsafe_allow_html=True)
         
@@ -266,21 +272,23 @@ def render_admin_portal():
                 st.markdown("""
                     <div style="text-align: center; margin-bottom: 20px;">
                         <h2 style="color: #112250; font-size: 1.6rem; font-weight: 800; margin: 0 0 4px 0;">ADMIN LOGIN</h2>
-                        <p style="color: #8A93A8; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin: 0;">PORTAL MANAJEMEN EKSIBISI</p>
+                        <p style="color: #8A93A8; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin: 0;">PORTAL MANAJEMEN AI EXHIBITON</p>
                     </div>
                 """, unsafe_allow_html=True)
 
                 username_input = st.text_input("Username", placeholder="Masukkan username admin")
                 password_input = st.text_input("Password", type="password", placeholder="Masukkan password admin")
                 
-                # Membagi kolom di dalam form agar tombol pas berada di tengah
                 _, btn_col, _ = st.columns([0.3, 2, 0.3])
                 with btn_col:
-                    btn_login = st.form_submit_button("Masuk Panel Admin ➔", use_container_width=True)
+                    btn_login = st.form_submit_button("Masuk Panel Admin", use_container_width=True)
 
                 if btn_login:
                     if username_input == "superadmin" and password_input == "adminsuper*3#12":
                         st.session_state.admin_logged_in = True
+                        # Simpan auth dan batas waktu kedaluwarsa (Waktu sekarang + durasi jam)
+                        st.query_params["admin_auth"] = "true"
+                        st.query_params["admin_expire"] = str(time.time() + (ADMIN_SESSION_HOURS * 3600))
                         st.success("Login berhasil! Memuat sistem...")
                         st.rerun()
                     else:
@@ -288,7 +296,7 @@ def render_admin_portal():
         return
 
     # ================= PANEL UTAMA ADMIN SETELAH LOGIN =================
-    styles.inject()
+    styles.inject(dark_stage=False)
     st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
 
     spreadsheet_obj, conn_err = db_helper.auto_connect_and_sync()
@@ -324,6 +332,10 @@ def render_admin_portal():
         
         if menu_admin == "🚪 Logout Admin":
             st.session_state.admin_logged_in = False
+            if "admin_auth" in st.query_params:
+                del st.query_params["admin_auth"]
+            if "admin_expire" in st.query_params:
+                del st.query_params["admin_expire"]
             st.session_state["menu_admin_state"] = "📊 Dashboard"
             st.rerun()
 
@@ -365,7 +377,6 @@ def render_admin_portal():
 
         with col_rank:
             st.markdown("#### 🏆 Top 3 Ranking Sementara")
-            # Memakai perhitungan yang sama dengan menu Ranking & Nilai
             df_rank_dash, _, _ = _siapkan_ranking()
             if not df_rank_dash.empty:
                 top3 = df_rank_dash.head(3)[["peringkat", "nama_peserta", "nilai_akhir"]].copy()

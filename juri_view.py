@@ -333,15 +333,40 @@ def render_juri_portal():
     spreadsheet_obj, conn_err = db_helper.auto_connect_and_sync()
     tanggal_format = db_helper.get_current_date_indonesia()
 
-    if "juri_auth" not in st.session_state:
-        st.session_state.juri_auth = _auth_kosong()
+    # Tentukan batas waktu sesi juri (dalam jam)
+    JURI_SESSION_HOURS = 4
 
-    styles.inject(dark_stage=not st.session_state.juri_auth["is_logged_in"])
+    if "juri_auth" not in st.session_state:
+        juri_id_param = st.query_params.get("juri_id", "")
+        expire_param = st.query_params.get("juri_expire", 0)
+
+        # Cek apakah ID juri ada dan belum melewati batas waktu kedaluwarsa
+        if juri_id_param and time.time() < float(expire_param or 0):
+            df_juri_check = db_helper.ensure_cols(st.session_state.db_juri, "juri")
+            juri_found = df_juri_check[df_juri_check["id_juri"].astype(str) == str(juri_id_param)]
+            if not juri_found.empty:
+                row_j = juri_found.iloc[0]
+                st.session_state.juri_auth = {
+                    "is_logged_in": True,
+                    "id_juri": str(row_j["id_juri"]),
+                    "nama": str(row_j["nama_juri"]),
+                    "jenis": str(row_j["jenis_instansi"]),
+                    "instansi": str(row_j["nama_instansi"]),
+                }
+            else:
+                st.session_state.juri_auth = _auth_kosong()
+        else:
+            st.session_state.juri_auth = _auth_kosong()
+            if "juri_id" in st.query_params:
+                del st.query_params["juri_id"]
+            if "juri_expire" in st.query_params:
+                del st.query_params["juri_expire"]
 
     # ==============================================================================
     # 1. HALAMAN LOGIN / CHECK-IN DEWAN JURI
     # ==============================================================================
     if not st.session_state.juri_auth["is_logged_in"]:
+        styles.inject(dark_stage=True)  # Memastikan halaman login juri berwarna biru tua (navy)
 
         st.markdown("""
         <style>
@@ -462,7 +487,6 @@ def render_juri_portal():
             """, unsafe_allow_html=True)
 
         with col_form:
-            # Pilihan dropdown diisi oleh admin (sheet "jenis")
             df_jenis = db_helper.ensure_cols(st.session_state.get("db_jenis"), "jenis")
             daftar_jenis = sorted({str(x).strip() for x in df_jenis["nama_jenis"] if str(x).strip()})
             PLACEHOLDER = "-- Pilih Instansi dari Daftar --"
@@ -506,7 +530,6 @@ def render_juri_portal():
                     elif not instansi_nama:
                         st.error("Nama instansi wajib diisi!")
                     else:
-                        # Juri dikenali dari kombinasi nama + instansi asal + nama instansi
                         df_juri = db_helper.ensure_cols(st.session_state.db_juri, "juri")
                         existing = df_juri[
                             (df_juri["nama_juri"].astype(str).str.lower() == nama_final.lower())
@@ -541,6 +564,9 @@ def render_juri_portal():
                             "jenis": jenis_dipilih,
                             "instansi": instansi_nama,
                         }
+                        # Menyimpan ID juri serta batas waktu kedaluwarsa sesi ke URL (Waktu sekarang + 4 jam)
+                        st.query_params["juri_id"] = str(juri_id_final)
+                        st.query_params["juri_expire"] = str(time.time() + (JURI_SESSION_HOURS * 3600))
                         st.session_state["menu_juri_state"] = MENU_DASHBOARD
                         st.rerun()
 
@@ -548,6 +574,7 @@ def render_juri_portal():
     # 2. DASHBOARD & MENU UTAMA JURI SETELAH LOGIN
     # ==============================================================================
     else:
+        styles.inject(dark_stage=False)  # Memastikan dashboard juri tetap terang bersih
         st.markdown(_JURI_CSS, unsafe_allow_html=True)
 
         auth = st.session_state.juri_auth
@@ -581,6 +608,10 @@ def render_juri_portal():
 
             if menu_juri == "🚪 Logout":
                 st.session_state.juri_auth = _auth_kosong()
+                if "juri_id" in st.query_params:
+                    del st.query_params["juri_id"]
+                if "juri_expire" in st.query_params:
+                    del st.query_params["juri_expire"]
                 st.session_state["menu_juri_state"] = MENU_DASHBOARD
                 st.rerun()
 

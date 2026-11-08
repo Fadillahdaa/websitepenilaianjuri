@@ -1,5 +1,5 @@
 """
-styles.py - CSS terpusat + menu sidebar berbasis tombol (tema Navy-Champagne).
+styles.py - CSS terpusat + menu sidebar berbasis tombol (mendukung otomatis Light/Dark Mode Chrome + Ukuran Font Lebih Besar).
 Sudah termasuk hamburger menu kustom untuk tampilan HP.
 """
 import streamlit as st
@@ -15,9 +15,13 @@ _CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
-/* Mencegah browser memaksa auto dark mode */
+/* KUNCI KE SKEMA TERANG PERMANEN (Mencegah Chrome memaksa dark mode pada input) */
 :root {
-    color-scheme: light dark;
+    color-scheme: light !important;
+}
+
+html, body, .stApp {
+    color-scheme: light !important;
 }
 
 html, body, .stApp, .stApp p, .stApp div, .stApp label, .stApp input,
@@ -25,7 +29,48 @@ html, body, .stApp, .stApp p, .stApp div, .stApp label, .stApp input,
     font-family: 'Plus Jakarta Sans', sans-serif;
 }
 
+/* Memperbesar ukuran font dasar secara keseluruhan di seluruh elemen teks */
+.stApp, .stApp p, .stApp span, .stApp label, .stApp input, .stApp textarea {
+    font-size: 1.05rem !important;
+}
+
+/* Memperbesar ukuran font pada heading agar lebih proporsional */
+.stApp h1 { font-size: 2.3rem !important; }
+.stApp h2 { font-size: 1.8rem !important; }
+.stApp h3 { font-size: 1.4rem !important; }
+
 %STAGE%
+
+/* ================= KOTAK INPUT (TERANG PERMANEN & KEBAL DARK MODE) ================= */
+input, textarea, select, 
+[data-baseweb="input"],
+[data-baseweb="input"] input,
+[data-testid="stTextInputField"],
+[data-testid="stPasswordInput"] input {
+    background-color: #ffffff !important;
+    background: #ffffff !important;
+    color: #112250 !important;
+    -webkit-text-fill-color: #112250 !important;
+    border-color: %CHAMPAGNE% !important;
+    color-scheme: light !important;
+}
+
+[data-baseweb="input"], 
+div[data-baseweb="input"] {
+    background-color: #ffffff !important;
+    background: #ffffff !important;
+}
+
+input:focus, textarea:focus, select:focus,
+[data-baseweb="input"]:focus-within {
+    background-color: #ffffff !important;
+    background: #ffffff !important;
+    color: #112250 !important;
+    -webkit-text-fill-color: #112250 !important;
+    border-color: %NAVY% !important;
+    box-shadow: 0 0 0 2px rgba(17, 34, 80, 0.15) !important;
+    color-scheme: light !important;
+}
 
 /* ================= HEADER STREAMLIT (TETAP TAMPIL) ================= */
 [data-testid="stHeader"] { background: transparent !important; }
@@ -168,7 +213,7 @@ section[data-testid="stSidebar"] [data-testid^="stBaseButton"] * {
     justify-content: flex-start !important;
     text-align: left !important;
     margin: 0 !important;
-    font-size: .92rem !important;
+    font-size: 1rem !important;
     font-weight: 600 !important;
 }
 section[data-testid="stSidebar"] .stButton > button:hover,
@@ -204,8 +249,9 @@ section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: .4rem !i
     font-weight: 700 !important;
     border-radius: 10px !important;
     border: none !important;
-    padding: 10px 20px !important;
+    padding: 12px 20px !important;
     width: 100% !important;
+    font-size: 1.05rem !important;
 }
 [data-testid="stMain"] .stButton > button p,
 [data-testid="stFormSubmitButton"] > button p { color: inherit !important; }
@@ -215,9 +261,9 @@ section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: .4rem !i
     color: %CHAMPAGNE% !important;
 }
 
-/* ================= FORM = KARTU PUTIH (Kecuali Form Login Admin) ================= */
+/* ================= FORM = KARTU (Adaptif Terang/Gelap) ================= */
 [data-testid="stForm"]:not([data-testid*="form_login_admin"]) {
-    background: #ffffff;
+    background: var(--card-bg, #ffffff);
     border: 1px solid %CHAMPAGNE% !important;
     border-radius: 20px;
     padding: 28px 26px;
@@ -233,9 +279,26 @@ section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: .4rem !i
     width: 100% !important;
 }
 
-[data-testid="stForm"] label p,
-[data-testid="stForm"] h1, [data-testid="stForm"] h2, [data-testid="stForm"] h3 {
-    color: %NAVY% !important;
+/* ================= PERBAIKAN STYLING DATAFRAME / TABEL ================= */
+[data-testid="stDataFrame"] {
+    background-color: #ffffff !important;
+    color-scheme: light !important;
+    border-radius: 12px !important;
+    border: 1px solid #E7E2CE !important;
+    box-shadow: 0 4px 12px rgba(17, 34, 80, 0.05) !important;
+}
+
+/* Header tabel */
+[data-testid="stDataFrame"] th {
+    background-color: #F5F4F0 !important;
+    color: #112250 !important;
+    font-weight: 700 !important;
+}
+
+/* Sel data tabel agar tetap kontras dan terbaca jelas */
+[data-testid="stDataFrame"] td {
+    background-color: #ffffff !important;
+    color: #112250 !important;
 }
 
 /* ================= KOMPONEN KUSTOM ================= */
@@ -250,7 +313,7 @@ section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: .4rem !i
     border: 1px solid %NAVY_2%;
 }
 .metric-card, .metric-card-juri, .content-card {
-    background: #fff;
+    background: var(--card-bg, #fff);
     border-radius: 16px;
     padding: 24px;
     border: 1px solid %CHAMPAGNE%;
@@ -271,10 +334,20 @@ section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: .4rem !i
 </style>
 """
 
-_STAGE_DARK = ".stApp { background: linear-gradient(135deg, #0b1736 0%, #112250 50%, #1a3375 100%) !important; }"
-_STAGE_LIGHT = ".stApp { background: %IVORY% !important; color: %NAVY% !important; }"
+_STAGE_AUTO = """
+@media (prefers-color-scheme: dark) {
+    .stApp { background: linear-gradient(135deg, #0b1736 0%, #112250 50%, #1a3375 100%) !important; color: #F5F4F0 !important; }
+    :root { --card-bg: #162a5c; --text-color: #F5F4F0; }
+}
+@media (prefers-color-scheme: light) {
+    .stApp { background: %IVORY% !important; color: %NAVY% !important; }
+    :root { --card-bg: #ffffff; --text-color: %NAVY%; }
+}
+"""
 
-# Script dijalankan di dokumen induk (halaman Streamlit), cukup sekali per sesi browser.
+_STAGE_DARK = ".stApp { background: linear-gradient(135deg, #0b1736 0%, #112250 50%, #1a3375 100%) !important; color: #F5F4F0 !important; } :root { --card-bg: #162a5c; --text-color: #F5F4F0; }"
+_STAGE_LIGHT = ".stApp { background: %IVORY% !important; color: %NAVY% !important; } :root { --card-bg: #ffffff; --text-color: %NAVY%; }"
+
 _NAV_JS = """
 <script>
 (function () {
@@ -305,7 +378,6 @@ _NAV_JS = """
             });
             bd.addEventListener('click', function () { setOpen(false); });
 
-            // tutup otomatis setelah memilih menu di sidebar
             document.addEventListener('click', function (e) {
                 if (!document.body.classList.contains('nav-open')) { return; }
                 var t = e.target;
@@ -321,10 +393,15 @@ _NAV_JS = """
 </script>
 """
 
-
 def inject(dark_stage: bool = False) -> None:
-    """Suntikkan CSS + hamburger HP. Panggil sekali di awal setiap render halaman."""
-    css = _CSS.replace("%STAGE%", _STAGE_DARK if dark_stage else _STAGE_LIGHT)
+    if dark_stage is True:
+        stage_css = _STAGE_DARK
+    elif dark_stage is False:
+        stage_css = _STAGE_LIGHT
+    else:
+        stage_css = _STAGE_LIGHT
+
+    css = _CSS.replace("%STAGE%", stage_css)
     for token, value in {
         "%NAVY_2%": NAVY_2, "%NAVY%": NAVY, "%CHAMPAGNE%": CHAMPAGNE,
         "%IVORY%": IVORY, "%SAND%": SAND,
@@ -333,12 +410,7 @@ def inject(dark_stage: bool = False) -> None:
     st.markdown(css, unsafe_allow_html=True)
     components.html(_NAV_JS, height=0)
 
-
 def sidebar_menu(items, key, divider_before=None):
-    """
-    Menu sidebar bergaya kartu. Panggil di dalam `with st.sidebar:`.
-    Mengembalikan label menu yang sedang aktif.
-    """
     if st.session_state.get(key) not in items:
         st.session_state[key] = items[0]
 
@@ -348,8 +420,8 @@ def sidebar_menu(items, key, divider_before=None):
                         unsafe_allow_html=True)
         aktif = st.session_state[key] == label
         if st.button(label, key=f"{key}_btn_{i}",
-                     type="primary" if aktif else "secondary",
-                     use_container_width=True):
+                   type="primary" if aktif else "secondary",
+                   use_container_width=True):
             st.session_state[key] = label
             st.rerun()
     return st.session_state[key]
