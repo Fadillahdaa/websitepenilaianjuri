@@ -15,6 +15,9 @@ if _dialog is None:
 KEMBALI_KE_DASHBOARD = False
 MENU_DASHBOARD = "🏠 Dashboard"
 
+# Jumlah peserta favorit yang harus dipilih setiap juri (tidak boleh kurang / lebih)
+JUMLAH_FAVORIT = 3
+
 KRITERIA = [
     "1. Riset & Relevansi Industri",
     "2. Inovasi & Kualitas Solusi",
@@ -122,6 +125,14 @@ _FAV_CSS = """
     html body [data-testid="stMain"] [data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) > div:first-child {
         background-color: #112250 !important;
         border-color: #112250 !important;
+    }
+
+    /* Tag pilihan multiselect: navy (bukan merah) */
+    html body [data-testid="stMain"] [data-baseweb="tag"] {
+        background-color: #112250 !important;
+    }
+    html body [data-testid="stMain"] [data-baseweb="tag"] span {
+        color: #ffffff !important;
     }
 </style>
 """
@@ -246,14 +257,20 @@ def _simpan_nilai(spreadsheet_obj, juri_id, peserta_id, skor, catatan):
     return {"total": total, "rata": rata, "waktu": ts, "gagal": gagal, "detail": detail}
 
 
-def _simpan_favorit(spreadsheet_obj, juri_id, peserta_id):
-    """Satu juri = satu favorit. Ganti pilihan lama bila ada. Return (gagal, detail)."""
+def _simpan_favorit(spreadsheet_obj, juri_id, peserta_ids):
+    """Satu juri = tepat JUMLAH_FAVORIT favorit. Pilihan lama diganti seluruhnya.
+    Return (gagal, detail)."""
+    peserta_ids = list(dict.fromkeys(peserta_ids))  # buang duplikat, urutan tetap
+    if len(peserta_ids) != JUMLAH_FAVORIT:
+        return True, f"Harus memilih tepat {JUMLAH_FAVORIT} peserta."
+
     ts = db_helper.timestamp_wib()
     df_fav = db_helper.ensure_cols(st.session_state.db_favorit, "favorit")
     df_fav = df_fav[df_fav["id_juri"].astype(str) != str(juri_id)]
-    baris = [ts, juri_id, peserta_id]
+    baris_baru = [[ts, juri_id, pid] for pid in peserta_ids]
     st.session_state.db_favorit = pd.concat(
-        [df_fav, pd.DataFrame([dict(zip(db_helper.SCHEMA["favorit"], baris))])], ignore_index=True
+        [df_fav, pd.DataFrame([dict(zip(db_helper.SCHEMA["favorit"], b)) for b in baris_baru])],
+        ignore_index=True,
     )
 
     if not spreadsheet_obj:
@@ -266,12 +283,9 @@ def _simpan_favorit(spreadsheet_obj, juri_id, peserta_id):
             i for i, r in enumerate(semua[1:], start=2)
             if len(r) > 1 and r[1] == str(juri_id)
         ]
-        if baris_lama:
-            ws.update(values=[baris], range_name=f"A{baris_lama[0]}")
-            for n in sorted(baris_lama[1:], reverse=True):
-                ws.delete_rows(n)
-        else:
-            ws.append_row(baris, value_input_option="RAW")
+        for n in sorted(baris_lama, reverse=True):
+            ws.delete_rows(n)
+        ws.append_rows(baris_baru, value_input_option="RAW")
         return False, ""
     except Exception as e:
         detail = f"{type(e).__name__}: {e}"
@@ -764,48 +778,80 @@ def render_juri_portal():
                         _popup_nilai(peserta_nama, hasil, diperbarui=sudah_pernah)
                         st.rerun()
 
-        # ---------------- PESERTA FAVORIT ----------------
+        # ---------------- PESERTA FAVORIT (TEPAT 3) ----------------
         elif menu_juri == "⭐ Peserta Favorit":
-            st.markdown("### ⭐ Peserta Favorit Pilihan Anda")
-            st.markdown("<p style='color: #666; font-size: 0.9rem;'>Pilih 1 peserta favorit Anda dari daftar berikut. Pilihan ini akan menjadi bagian dari hasil akhir penilaian.</p>", unsafe_allow_html=True)
+            st.markdown(f"### ⭐ {JUMLAH_FAVORIT} Peserta Favorit Pilihan Anda")
+            st.markdown(
+                f"<p style='color: #666; font-size: 0.9rem;'>Pilih <b>tepat {JUMLAH_FAVORIT}</b> peserta favorit Anda "
+                f"(tidak boleh kurang atau lebih). Pilihan ini akan menjadi bagian dari hasil akhir penilaian.</p>",
+                unsafe_allow_html=True,
+            )
 
             df_peserta = st.session_state.db_peserta
             if df_peserta.empty:
                 st.warning("⚠️ Belum ada data peserta yang tersedia.")
+            elif len(df_peserta) < JUMLAH_FAVORIT:
+                st.warning(
+                    f"⚠️ Peserta baru ada {len(df_peserta)}. "
+                    f"Minimal harus ada {JUMLAH_FAVORIT} peserta agar favorit bisa dipilih."
+                )
             else:
                 df_fav = db_helper.ensure_cols(st.session_state.db_favorit, "favorit")
                 fav_saya = df_fav[df_fav["id_juri"].astype(str) == str(juri_id_aktif)]
-                current_fav_id = fav_saya.iloc[-1]["id_peserta"] if not fav_saya.empty else None
 
                 list_id = df_peserta["id_peserta"].tolist()
                 label_map = {
                     row["id_peserta"]: f"{row['nama_peserta']} [{row['id_peserta']}]"
                     for _, row in df_peserta.iterrows()
                 }
-                idx_def = list_id.index(current_fav_id) if current_fav_id in list_id else 0
+                favorit_saat_ini = [
+                    p for p in dict.fromkeys(fav_saya["id_peserta"].tolist()) if p in list_id
+                ]
 
-                if current_fav_id in label_map:
-                    st.info(f"Favorit Anda saat ini: **{label_map[current_fav_id]}**")
+                if len(favorit_saat_ini) == JUMLAH_FAVORIT:
+                    st.info("Favorit Anda saat ini:\n\n" + "\n".join(f"- {label_map[p]}" for p in favorit_saat_ini))
+                elif favorit_saat_ini:
+                    st.warning(
+                        f"Pilihan lama Anda hanya {len(favorit_saat_ini)} peserta. "
+                        f"Lengkapi menjadi {JUMLAH_FAVORIT}."
+                    )
 
                 st.markdown(_FAV_CSS, unsafe_allow_html=True)
 
-                with st.form("form_voting_favorit"):
-                    pilih_fav_id = st.radio(
-                        "Daftar Kandidat Peserta:",
+                with st.container(border=True):
+                    pilihan = st.multiselect(
+                        f"Pilih {JUMLAH_FAVORIT} peserta favorit:",
                         options=list_id,
-                        index=idx_def,
-                        format_func=lambda x: label_map[x] + ("   ⭐ pilihan saat ini" if x == current_fav_id else ""),
+                        default=favorit_saat_ini[:JUMLAH_FAVORIT],
+                        format_func=lambda x: label_map[x],
+                        max_selections=JUMLAH_FAVORIT,
+                        key=f"fav_multi_{juri_id_aktif}",
+                        placeholder="Klik untuk memilih peserta...",
                     )
-                    st.markdown("<br>", unsafe_allow_html=True)
 
-                    if st.form_submit_button("⭐ Simpan Pilihan Favorit"):
-                        gagal, detail = _simpan_favorit(spreadsheet_obj, juri_id_aktif, pilih_fav_id)
+                    n = len(pilihan)
+                    if n == JUMLAH_FAVORIT:
+                        st.markdown(
+                            f"<span style='color:#0b7337; font-weight:700;'>✅ {n}/{JUMLAH_FAVORIT} peserta dipilih</span>",
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.markdown(
+                            f"<span style='color:#d97706; font-weight:700;'>⏳ {n}/{JUMLAH_FAVORIT} dipilih "
+                            f"— pilih {JUMLAH_FAVORIT - n} lagi</span>",
+                            unsafe_allow_html=True,
+                        )
+
+                    if st.button("⭐ Simpan Pilihan Favorit", key="simpan_favorit",
+                                 disabled=(n != JUMLAH_FAVORIT)):
+                        gagal, detail = _simpan_favorit(spreadsheet_obj, juri_id_aktif, pilihan)
+                        daftar = "\n".join(f"- {label_map[p]}" for p in pilihan)
                         if gagal:
                             _popup("warning", "Belum masuk ke database",
                                    f"Pilihan favorit tersimpan di aplikasi, tetapi **gagal ditulis ke Google Sheet**.\n\n`{detail}`")
                         else:
                             _popup("success", "Favorit berhasil disimpan",
-                                   f"Peserta favorit Anda: **{label_map[pilih_fav_id]}**.")
+                                   f"{JUMLAH_FAVORIT} peserta favorit Anda:\n\n{daftar}")
                         st.rerun()
 
         # ---------------- RIWAYAT + EDIT NILAI ----------------

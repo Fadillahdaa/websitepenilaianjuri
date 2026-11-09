@@ -10,6 +10,9 @@ _dialog = getattr(st, "dialog", None) or getattr(st, "experimental_dialog", None
 if _dialog is None:
     raise RuntimeError("Fitur popup butuh Streamlit >= 1.34. Jalankan: pip install -U streamlit")
 
+# Jumlah favorit per juri (samakan dengan JUMLAH_FAVORIT di juri_view.py)
+JUMLAH_FAVORIT = 3
+
 _ADMIN_CSS = """
 <style>
     .stApp {
@@ -381,7 +384,11 @@ def render_admin_portal():
             st.markdown("#### ⭐ Peserta Favorit Teratas")
             df_fav = st.session_state.db_favorit
             if not df_fav.empty and not df_peserta.empty and "id_peserta" in df_fav.columns:
-                fav_counts = df_fav["id_peserta"].value_counts().reset_index()
+                # Hitung jumlah juri unik yang memilih tiap peserta
+                fav_counts = (
+                    df_fav.drop_duplicates(subset=["id_juri", "id_peserta"])["id_peserta"]
+                    .value_counts().reset_index()
+                )
                 fav_counts.columns = ["id_peserta", "Total Vote"]
                 fav_counts = fav_counts.merge(df_peserta[["id_peserta", "nama_peserta"]], on="id_peserta", how="left")
                 top_name = fav_counts.iloc[0]["nama_peserta"]
@@ -390,7 +397,7 @@ def render_admin_portal():
                     <div class="content-card" style="text-align: center; border-top: 4px solid #3B507D;">
                         <div style="font-size: 38px; margin-bottom: 6px;">🌟</div>
                         <h3 style="color: #112250; margin: 0; font-size: 1.25rem;">{top_name}</h3>
-                        <p style="color: #3B507D; font-weight: 700; margin-top: 8px; font-size: 0.9rem;">Terpilih dari {top_votes} Vote Juri</p>
+                        <p style="color: #3B507D; font-weight: 700; margin-top: 8px; font-size: 0.9rem;">Dipilih oleh {top_votes} juri</p>
                     </div>
                 """, unsafe_allow_html=True)
             else:
@@ -587,7 +594,8 @@ def render_admin_portal():
 
     # ---------------- 5. PESERTA FAVORIT ----------------
     elif menu_admin == "⭐ Peserta Favorit":
-        st.markdown("#### ⭐ Akumulasi Pilihan Peserta Favorit Dewan Juri")
+        st.markdown(f"#### ⭐ Akumulasi Pilihan Peserta Favorit Dewan Juri")
+        st.caption(f"Setiap juri memilih tepat {JUMLAH_FAVORIT} peserta favorit.")
         df_fav = db_helper.ensure_cols(st.session_state.db_favorit, "favorit")
         if not df_fav.empty:
             df_j = (db_helper.tampilkan_nama_juri(st.session_state.db_juri)
@@ -602,6 +610,23 @@ def render_admin_portal():
             for c in ["nama_juri", "jenis_instansi", "nama_instansi", "nama_peserta"]:
                 df_tampil[c] = df_tampil[c].fillna("-")
 
+            # Rekap vote per peserta (tiap juri memberi JUMLAH_FAVORIT vote)
+            st.markdown("##### 🏅 Rekap Vote per Peserta")
+            rekap = (df_tampil.groupby("nama_peserta").agg(Vote=("id_juri", "nunique"))
+                     .reset_index().sort_values("Vote", ascending=False)
+                     .rename(columns={"nama_peserta": "Peserta Favorit"}))
+            st.dataframe(rekap, use_container_width=True, hide_index=True)
+
+            # Juri yang belum lengkap pilihannya
+            per_juri = df_fav.groupby("id_juri")["id_peserta"].nunique()
+            kurang = per_juri[per_juri != JUMLAH_FAVORIT]
+            if not kurang.empty:
+                st.warning(
+                    f"{len(kurang)} juri belum memiliki tepat {JUMLAH_FAVORIT} pilihan favorit "
+                    f"(data lama / belum lengkap)."
+                )
+
+            st.markdown("##### 📋 Detail Pilihan Tiap Juri")
             st.dataframe(
                 df_tampil[["waktu_input", "nama_juri", "jenis_instansi", "nama_instansi", "nama_peserta"]]
                 .rename(columns={
