@@ -363,96 +363,48 @@ def render_admin_portal():
                 st.markdown(f"""<div class="metric-card"><h2 style="color:#112250; font-size: 2rem; margin:0;">{angka}</h2><p style="color:#6B7280; font-size:0.9rem; font-weight:600; margin:6px 0 0 0;">{label}</p></div>""", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
-        col_rank, col_fav = st.columns([1.5, 1])
         df_peserta = st.session_state.db_peserta
+        medali = {1: "🥇", 2: "🥈", 3: "🥉"}
 
-        with col_rank:
-            st.markdown("#### 🏆 Top 3 Ranking Sementara")
-            # Memakai perhitungan yang sama dengan menu Ranking & Nilai
-            df_rank_dash, _, _ = _siapkan_ranking()
-            if not df_rank_dash.empty:
-                top3 = df_rank_dash.head(3)[["peringkat", "nama_peserta", "nilai_akhir"]].copy()
-                top3.columns = ["Peringkat", "Nama Peserta", "Nilai Rata-rata"]
-                st.dataframe(
-                    top3.style.format({"Nilai Rata-rata": "{:.2f}"}),
-                    use_container_width=True, hide_index=True,
-                )
-            else:
-                st.info("Belum ada data penilaian.")
-
-        with col_fav:
-            st.markdown("#### ⭐ Peserta Favorit Teratas")
-            df_fav = st.session_state.db_favorit
-            if not df_fav.empty and not df_peserta.empty and "id_peserta" in df_fav.columns:
-                # Hitung jumlah juri unik yang memilih tiap peserta
-                fav_counts = (
-                    df_fav.drop_duplicates(subset=["id_juri", "id_peserta"])["id_peserta"]
-                    .value_counts().reset_index()
-                )
-                fav_counts.columns = ["id_peserta", "Total Vote"]
-                fav_counts = fav_counts.merge(df_peserta[["id_peserta", "nama_peserta"]], on="id_peserta", how="left")
-                top_name = fav_counts.iloc[0]["nama_peserta"]
-                top_votes = fav_counts.iloc[0]["Total Vote"]
-                st.markdown(f"""
-                    <div class="content-card" style="text-align: center; border-top: 4px solid #3B507D;">
-                        <div style="font-size: 38px; margin-bottom: 6px;">🌟</div>
-                        <h3 style="color: #112250; margin: 0; font-size: 1.25rem;">{top_name}</h3>
-                        <p style="color: #3B507D; font-weight: 700; margin-top: 8px; font-size: 0.9rem;">Dipilih oleh {top_votes} juri</p>
-                    </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.info("Belum ada vote favorit.")
-
-        # ---- Ranking lengkap peserta favorit (semua peserta) ----
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("#### ⭐ Ranking Peserta Favorit (Seluruh Peserta)")
-
-        if df_peserta.empty:
-            st.info("Belum ada data peserta.")
-        else:
-            df_fav_all = db_helper.ensure_cols(st.session_state.db_favorit, "favorit")
-
-            # Hitung juri unik yang memilih tiap peserta (cara sama dengan kartu di atas)
-            if df_fav_all.empty:
-                votes = pd.Series(dtype=int)
-            else:
-                votes = (
-                    df_fav_all.drop_duplicates(subset=["id_juri", "id_peserta"])["id_peserta"]
-                    .value_counts()
-                )
-
-            rank_fav = (
-                df_peserta[["id_peserta", "nama_peserta"]]
-                .drop_duplicates(subset="id_peserta")
-                .copy()
-            )
-            rank_fav["total_vote"] = rank_fav["id_peserta"].map(votes).fillna(0).astype(int)
-            rank_fav = rank_fav.sort_values(
-                ["total_vote", "nama_peserta"], ascending=[False, True]
-            ).reset_index(drop=True)
-            rank_fav["peringkat"] = (
-                rank_fav["total_vote"].rank(method="min", ascending=False).astype(int)
-            )
-
-            medali_fav = {1: "🥇", 2: "🥈", 3: "🥉"}
-            rank_fav["Peringkat"] = [
-                medali_fav.get(p, f"#{p}") if v > 0 else f"#{p}"
-                for p, v in zip(rank_fav["peringkat"], rank_fav["total_vote"])
-            ]
-
-            tampil_fav = rank_fav[["Peringkat", "nama_peserta", "total_vote"]].rename(
-                columns={"nama_peserta": "Nama Peserta", "total_vote": "Total Voting"}
-            )
+        # ---- 1) Top 3 Ranking Sementara (nilai presentasi) ----
+        st.markdown("#### 🏆 Top 3 Ranking Sementara")
+        # Memakai perhitungan yang sama dengan menu Ranking & Nilai
+        df_rank_dash, _, _ = _siapkan_ranking()
+        if not df_rank_dash.empty:
+            top3 = df_rank_dash.head(3)[["peringkat", "nama_peserta", "nilai_akhir"]].copy()
+            top3["peringkat"] = top3["peringkat"].map(lambda p: medali.get(p, f"#{p}"))
+            top3.columns = ["Peringkat", "Nama Peserta", "Nilai Rata-rata"]
             st.dataframe(
-                tampil_fav,
-                use_container_width=True,
-                hide_index=True,
-                height=(len(tampil_fav) + 1) * 35 + 3,  # semua baris langsung terlihat tanpa scroll
+                top3.style.format({"Nilai Rata-rata": "{:.2f}"}),
+                use_container_width=True, hide_index=True,
             )
-            st.caption(
-                f"Total suara masuk: {int(rank_fav['total_vote'].sum())} "
-                f"· Skor sama = peringkat sama, diurutkan abjad."
+        else:
+            st.info("Belum ada data penilaian.")
+
+        # ---- 2) Top 3 Peserta Favorit (di bawah ranking) ----
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("#### ⭐ Top 3 Peserta Favorit")
+        df_fav = db_helper.ensure_cols(st.session_state.db_favorit, "favorit")
+        if not df_fav.empty and not df_peserta.empty and "id_peserta" in df_fav.columns:
+            # Hitung jumlah juri unik yang memilih tiap peserta
+            fav_counts = (
+                df_fav.drop_duplicates(subset=["id_juri", "id_peserta"])["id_peserta"]
+                .value_counts().reset_index()
             )
+            fav_counts.columns = ["id_peserta", "total_vote"]
+            fav_counts = (
+                fav_counts.merge(df_peserta[["id_peserta", "nama_peserta"]], on="id_peserta", how="inner")
+                .sort_values(["total_vote", "nama_peserta"], ascending=[False, True])
+                .reset_index(drop=True)
+            )
+            fav_counts["peringkat"] = fav_counts["total_vote"].rank(method="min", ascending=False).astype(int)
+
+            top3_fav = fav_counts.head(3)[["peringkat", "nama_peserta", "total_vote"]].copy()
+            top3_fav["peringkat"] = top3_fav["peringkat"].map(lambda p: medali.get(p, f"#{p}"))
+            top3_fav.columns = ["Peringkat", "Nama Peserta", "Total Voting"]
+            st.dataframe(top3_fav, use_container_width=True, hide_index=True)
+        else:
+            st.info("Belum ada vote favorit.")
 
     # ---------------- 2. KELOLA PESERTA ----------------
     elif menu_admin == "📁 Kelola Peserta":
