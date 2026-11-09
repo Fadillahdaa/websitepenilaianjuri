@@ -108,6 +108,9 @@ _HIDE_SIDEBAR_CSS = """
 """
 
 _KRIT = ["k1", "k2", "k3", "k4"]
+# Bobot tiap kriteria: Riset 40% · Visual 30% · Video 20% · Presentasi 10%
+# (samakan dengan BOBOT di juri_view.py)
+_BOBOT = [0.40, 0.30, 0.20, 0.10]
 
 
 # ============================ HELPER ============================
@@ -137,7 +140,9 @@ def _siapkan_ranking():
 
     for k in _KRIT:
         df_n[k] = pd.to_numeric(df_n[k], errors="coerce") if k in df_n.columns else float("nan")
-    df_n["rata_juri"] = df_n[_KRIT].mean(axis=1)
+    # Nilai akhir tiap juri = K1x40% + K2x30% + K3x20% + K4x10%
+    # min_count: jika ada kriteria kosong, hasilnya NaN lalu dibuang oleh dropna di bawah
+    df_n["rata_juri"] = (df_n[_KRIT] * _BOBOT).sum(axis=1, min_count=len(_KRIT)).round(2)
     df_n = df_n.dropna(subset=["rata_juri"])
     if df_n.empty:
         return pd.DataFrame(), pd.DataFrame(), diabaikan
@@ -155,7 +160,7 @@ def _siapkan_ranking():
             df_detail[c] = "-"
         df_detail[c] = df_detail[c].fillna("-")
 
-    # Ranking = rata-rata dari rata-rata tiap juri
+    # Ranking = rata-rata dari nilai akhir berbobot tiap juri
     df_rank = (
         df_detail.groupby("id_peserta")
         .agg(nilai_akhir=("rata_juri", "mean"), jumlah_juri=("id_juri", "nunique"))
@@ -366,16 +371,16 @@ def render_admin_portal():
         df_peserta = st.session_state.db_peserta
         medali = {1: "🥇", 2: "🥈", 3: "🥉"}
 
-        # ---- 1) Top 3 Ranking Sementara (nilai presentasi) ----
+        # ---- 1) Top 3 Ranking Sementara (nilai berbobot) ----
         st.markdown("#### 🏆 Top 3 Ranking Sementara")
         # Memakai perhitungan yang sama dengan menu Ranking & Nilai
         df_rank_dash, _, _ = _siapkan_ranking()
         if not df_rank_dash.empty:
             top3 = df_rank_dash.head(3)[["peringkat", "nama_peserta", "nilai_akhir"]].copy()
             top3["peringkat"] = top3["peringkat"].map(lambda p: medali.get(p, f"#{p}"))
-            top3.columns = ["Peringkat", "Nama Peserta", "Nilai Rata-rata"]
+            top3.columns = ["Peringkat", "Nama Peserta", "Nilai Akhir"]
             st.dataframe(
-                top3.style.format({"Nilai Rata-rata": "{:.2f}"}),
+                top3.style.format({"Nilai Akhir": "{:.2f}"}),
                 use_container_width=True, hide_index=True,
             )
         else:
@@ -561,7 +566,11 @@ def render_admin_portal():
     # ---------------- 4. RANKING & NILAI ----------------
     elif menu_admin == "🏆 Ranking & Nilai":
         st.markdown("#### 🏆 Klasemen Ranking Akhir")
-        st.caption("Peringkat berdasarkan rata-rata nilai seluruh juri (K1–K4). Klik nama peserta untuk melihat siapa saja yang menilai.")
+        st.caption(
+            "Peringkat berdasarkan rata-rata nilai akhir berbobot seluruh juri "
+            "(Riset & Relevansi 40% · Visual & Infografis 30% · Video 20% · Presentasi 10%). "
+            "Klik nama peserta untuk melihat siapa saja yang menilai."
+        )
 
         df_rank, df_detail, diabaikan = _siapkan_ranking()
 
@@ -583,11 +592,13 @@ def render_admin_portal():
                             kolom_tampil.append(opsional)
                     tampil = det[kolom_tampil].rename(columns={
                         "nama_juri": "Nama Juri", "jenis_instansi": "Jenis Instansi",
-                        "nama_instansi": "Nama DUDIKA", "k1": "K1", "k2": "K2", "k3": "K3", "k4": "K4",
-                        "rata_juri": "Rata-rata", "catatan": "Catatan", "waktu_input": "Waktu Input",
+                        "nama_instansi": "Nama DUDIKA",
+                        "k1": "K1 Riset (40%)", "k2": "K2 Visual (30%)",
+                        "k3": "K3 Video (20%)", "k4": "K4 Presentasi (10%)",
+                        "rata_juri": "Nilai Akhir", "catatan": "Catatan", "waktu_input": "Waktu Input",
                     })
                     st.dataframe(
-                        tampil.style.format({"Rata-rata": "{:.2f}"}),
+                        tampil.style.format({"Nilai Akhir": "{:.2f}"}),
                         use_container_width=True, hide_index=True,
                     )
 
