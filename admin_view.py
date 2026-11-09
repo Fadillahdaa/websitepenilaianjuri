@@ -613,12 +613,41 @@ def render_admin_portal():
             for c in ["nama_juri", "jenis_instansi", "nama_instansi", "nama_peserta"]:
                 df_tampil[c] = df_tampil[c].fillna("-")
 
-            # Rekap vote per peserta (tiap juri memberi JUMLAH_FAVORIT vote)
-            st.markdown("##### 🏅 Rekap Vote per Peserta")
-            rekap = (df_tampil.groupby("nama_peserta").agg(Vote=("id_juri", "nunique"))
-                     .reset_index().sort_values("Vote", ascending=False)
-                     .rename(columns={"nama_peserta": "Peserta Favorit"}))
-            st.dataframe(rekap, use_container_width=True, hide_index=True)
+            # Rekap vote per peserta: SEMUA peserta, urut peringkat 1..N
+            st.markdown("##### 🏅 Rekap Vote per Peserta (Peringkat)")
+            votes = (
+                df_fav.drop_duplicates(subset=["id_juri", "id_peserta"])["id_peserta"]
+                .value_counts()
+            )
+            rekap = df_p.copy()
+            rekap["total_vote"] = rekap["id_peserta"].map(votes).fillna(0).astype(int)
+            rekap = rekap.sort_values(
+                ["total_vote", "nama_peserta"], ascending=[False, True]
+            ).reset_index(drop=True)
+            rekap["peringkat"] = rekap["total_vote"].rank(method="min", ascending=False).astype(int)
+
+            medali_rekap = {1: "🥇", 2: "🥈", 3: "🥉"}
+            rekap["Peringkat"] = [
+                medali_rekap.get(p, f"#{p}") if v > 0 else f"#{p}"
+                for p, v in zip(rekap["peringkat"], rekap["total_vote"])
+            ]
+            tampil_rekap = rekap[["Peringkat", "nama_peserta", "total_vote"]].rename(
+                columns={"nama_peserta": "Nama Peserta", "total_vote": "Total Voting"}
+            )
+            st.dataframe(
+                tampil_rekap,
+                use_container_width=True,
+                hide_index=True,
+                height=(len(tampil_rekap) + 1) * 35 + 3,  # semua baris terlihat tanpa scroll
+                column_config={
+                    "Peringkat": st.column_config.TextColumn("Peringkat", width="small"),
+                    "Total Voting": st.column_config.NumberColumn("Total Voting", width="small"),
+                },
+            )
+            st.caption(
+                f"Total suara masuk: {int(rekap['total_vote'].sum())} "
+                f"· Skor sama = peringkat sama, diurutkan abjad."
+            )
 
             # Juri yang belum lengkap pilihannya
             per_juri = df_fav.groupby("id_juri")["id_peserta"].nunique()
