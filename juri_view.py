@@ -753,9 +753,10 @@ def render_juri_portal():
                 for _, row in df_peserta.iterrows():
                     pid = row["id_peserta"]
                     status = "✅ (Sudah Dinilai)" if str(pid) in sudah_dinilai else "⏳ (Belum Dinilai)"
-                    label_map[pid] = f"{row['nama_peserta']} [{pid}] {status}"
+                    # ID Peserta disembunyikan dari tampilan juri, tapi dict tetap memetakan pid asli di backend
+                    label_map[pid] = f"{row['nama_peserta']} — {status}"
 
-                # Opsi memakai ID (stabil) agar pilihan tidak loncat ke atas setelah menyimpan
+                # Opsi memakai ID (stabil) tanpa menampilkan teks [PST-XXX] ke layar
                 peserta_id = st.selectbox(
                     "Pilih Peserta:", options=list(label_map.keys()),
                     format_func=lambda x: label_map[x],
@@ -766,7 +767,6 @@ def render_juri_portal():
                     <div style="padding-top: 10px;">
                         <span style="background: #112250; color: #3BF07D; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase;">Kandidat Terpilih</span>
                         <h2 style="color: #112250; margin: 10px 0 4px 0;">{peserta_nama}</h2>
-                        <p style="color: #666; font-size: 0.9rem;">ID Peserta: <b>{peserta_id}</b></p>
                     </div>
                 """, unsafe_allow_html=True)
 
