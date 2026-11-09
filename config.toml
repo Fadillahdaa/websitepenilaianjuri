@@ -1,0 +1,7 @@
+[theme]
+# Kunci tema TERANG: tampilan tidak ikut mode gelap Chrome / HP / laptop
+base = "light"
+primaryColor = "#112250"
+backgroundColor = "#F5F4F0"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#112250"

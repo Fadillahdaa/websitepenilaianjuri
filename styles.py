@@ -1,6 +1,7 @@
 """
 styles.py - CSS terpusat + menu sidebar berbasis tombol (tema Navy-Champagne).
 Sudah termasuk hamburger menu kustom untuk tampilan HP.
+Tampilan DIKUNCI ke tema terang: tidak mengikuti mode gelap browser / device.
 """
 import streamlit as st
 import streamlit.components.v1 as components
@@ -15,10 +16,11 @@ _CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
-/* Mencegah browser memaksa auto dark mode */
-:root {
-    color-scheme: light dark;
+/* Kunci tampilan ke TERANG. Browser/device mode gelap tidak boleh mengubah warna. */
+:root, html, body {
+    color-scheme: only light !important;
 }
+html, body { background-color: %IVORY%; }
 
 html, body, .stApp, .stApp p, .stApp div, .stApp label, .stApp input,
 .stApp button, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp textarea {
@@ -26,6 +28,36 @@ html, body, .stApp, .stApp p, .stApp div, .stApp label, .stApp input,
 }
 
 %STAGE%
+
+/* Field input tetap terang walau device mode gelap */
+.stApp input, .stApp textarea {
+    color-scheme: only light !important;
+}
+[data-testid="stMain"] [data-baseweb="input"],
+[data-testid="stMain"] [data-baseweb="textarea"],
+[data-testid="stMain"] [data-baseweb="select"] > div {
+    background-color: #ffffff !important;
+}
+[data-testid="stMain"] input,
+[data-testid="stMain"] textarea {
+    color: %NAVY% !important;
+    -webkit-text-fill-color: %NAVY% !important;
+    background-color: transparent !important;
+}
+[data-testid="stMain"] label p,
+[data-testid="stMain"] [data-testid="stMarkdownContainer"] h1,
+[data-testid="stMain"] [data-testid="stMarkdownContainer"] h2,
+[data-testid="stMain"] [data-testid="stMarkdownContainer"] h3,
+[data-testid="stMain"] [data-testid="stMarkdownContainer"] h4 {
+    color: %NAVY%;
+}
+
+/* Popup (dialog) tetap putih */
+[data-testid="stDialog"] [role="dialog"],
+[data-testid="stDialog"] > div > div {
+    background-color: #ffffff !important;
+    color-scheme: only light !important;
+}
 
 /* ================= HEADER STREAMLIT (TETAP TAMPIL) ================= */
 [data-testid="stHeader"] { background: transparent !important; }
@@ -275,11 +307,27 @@ _STAGE_DARK = ".stApp { background: linear-gradient(135deg, #0b1736 0%, #112250 
 _STAGE_LIGHT = ".stApp { background: %IVORY% !important; color: %NAVY% !important; }"
 
 # Script dijalankan di dokumen induk (halaman Streamlit), cukup sekali per sesi browser.
+# Selain hamburger, script ini memasang <meta name="color-scheme" content="only light">
+# agar browser (termasuk "force dark" di Android) tidak membalik warna halaman.
 _NAV_JS = """
 <script>
 (function () {
     try {
         var p = window.parent;
+
+        // Kunci tema terang di tingkat dokumen
+        try {
+            var d = p.document;
+            var m = d.querySelector('meta[name="color-scheme"]');
+            if (!m) {
+                m = d.createElement('meta');
+                m.setAttribute('name', 'color-scheme');
+                d.head.appendChild(m);
+            }
+            m.setAttribute('content', 'only light');
+            d.documentElement.style.colorScheme = 'only light';
+        } catch (e) {}
+
         if (p.__navInit) { return; }
         p.__navInit = true;
 
