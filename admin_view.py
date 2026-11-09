@@ -403,6 +403,57 @@ def render_admin_portal():
             else:
                 st.info("Belum ada vote favorit.")
 
+        # ---- Ranking lengkap peserta favorit (semua peserta) ----
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("#### ⭐ Ranking Peserta Favorit (Seluruh Peserta)")
+
+        if df_peserta.empty:
+            st.info("Belum ada data peserta.")
+        else:
+            df_fav_all = db_helper.ensure_cols(st.session_state.db_favorit, "favorit")
+
+            # Hitung juri unik yang memilih tiap peserta (cara sama dengan kartu di atas)
+            if df_fav_all.empty:
+                votes = pd.Series(dtype=int)
+            else:
+                votes = (
+                    df_fav_all.drop_duplicates(subset=["id_juri", "id_peserta"])["id_peserta"]
+                    .value_counts()
+                )
+
+            rank_fav = (
+                df_peserta[["id_peserta", "nama_peserta"]]
+                .drop_duplicates(subset="id_peserta")
+                .copy()
+            )
+            rank_fav["total_vote"] = rank_fav["id_peserta"].map(votes).fillna(0).astype(int)
+            rank_fav = rank_fav.sort_values(
+                ["total_vote", "nama_peserta"], ascending=[False, True]
+            ).reset_index(drop=True)
+            rank_fav["peringkat"] = (
+                rank_fav["total_vote"].rank(method="min", ascending=False).astype(int)
+            )
+
+            medali_fav = {1: "🥇", 2: "🥈", 3: "🥉"}
+            rank_fav["Peringkat"] = [
+                medali_fav.get(p, f"#{p}") if v > 0 else f"#{p}"
+                for p, v in zip(rank_fav["peringkat"], rank_fav["total_vote"])
+            ]
+
+            tampil_fav = rank_fav[["Peringkat", "nama_peserta", "total_vote"]].rename(
+                columns={"nama_peserta": "Nama Peserta", "total_vote": "Total Voting"}
+            )
+            st.dataframe(
+                tampil_fav,
+                use_container_width=True,
+                hide_index=True,
+                height=(len(tampil_fav) + 1) * 35 + 3,  # semua baris langsung terlihat tanpa scroll
+            )
+            st.caption(
+                f"Total suara masuk: {int(rank_fav['total_vote'].sum())} "
+                f"· Skor sama = peringkat sama, diurutkan abjad."
+            )
+
     # ---------------- 2. KELOLA PESERTA ----------------
     elif menu_admin == "📁 Kelola Peserta":
         st.markdown("#### 📁 Kelola Data Peserta")
