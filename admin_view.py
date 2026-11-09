@@ -122,7 +122,7 @@ def _siapkan_ranking():
     """Return (df_rank, df_detail, jumlah_baris_diabaikan)."""
     df_n = st.session_state.db_penilaian.copy()
     df_p = st.session_state.db_peserta
-    df_j = db_helper.ensure_cols(st.session_state.db_juri, "juri").copy()
+    df_j = db_helper.tampilkan_nama_juri(st.session_state.db_juri)
 
     if df_n.empty or df_p.empty or "id_peserta" not in df_n.columns:
         return pd.DataFrame(), pd.DataFrame(), 0
@@ -523,7 +523,17 @@ def render_admin_portal():
                 f"🎓 Terima magang: **{n_ya}** instansi  ·  Tidak menerima: **{n_tidak}**  ·  Belum diisi: **{n_belum}**"
             )
 
-            df_tampil = df_juri.copy()
+            if st.button("🧹 Rapikan data lama di Google Sheet", key="rapikan_juri",
+                         help="Mengganti kode lama (INS-001, dst.) di sheet 'juri' dengan nama asli."):
+                jumlah, serr = db_helper.rapikan_data_juri(spreadsheet_obj)
+                st.session_state["flash_instansi"] = (
+                    ("warning", f"Gagal merapikan data: {serr}") if serr
+                    else ("success", f"{jumlah} baris juri berhasil dirapikan di Google Sheet.")
+                )
+                db_helper.auto_connect_and_sync(force=True)
+                st.rerun()
+
+            df_tampil = db_helper.tampilkan_nama_juri(df_juri)
             df_tampil["terima_magang"] = (
                 status_magang
                 .map({"Ya": "✅ Menerima", "Tidak": "❌ Tidak menerima"})

@@ -235,6 +235,113 @@ def perbaiki_urutan_penilaian(spreadsheet):
         return 0
 
 
+# ============================ NAMA ASLI INSTANSI (DATA LAMA) ============================
+# Data juri lama menyimpan kode (INS-001 / JNS-001), bukan nama. Kode diterjemahkan
+# memakai sheet lama "instansi" (jika masih ada) dan sheet "jenis".
+_POLA_KODE = re.compile(r"^(INS|JNS)-\d+$", re.IGNORECASE)
+
+
+def _baca_instansi_lama(existing):
+    """Baca sheet lama 'instansi' -> {KODE: {"nama": ..., "jenis": ...}}."""
+    ws = existing.get("instansi")
+    peta = {}
+    if ws is None:
+        return peta
+    data = ws.get_all_values()
+    if len(data) < 2:
+        return peta
+    header = [h.strip().lower() for h in data[0]]
+
+    def cari(*kata):
+        for i, h in enumerate(header):
+            if any(k in h for k in kata):
+                return i
+        return None
+
+    i_id = cari("id")
+    i_nama = cari("nama")
+    i_jenis = cari("jenis", "tipe", "kategori")
+    i_id = 0 if i_id is None else i_id
+    i_nama = 1 if i_nama is None else i_nama
+
+    for r in data[1:]:
+        r = list(r) + [""] * (len(header) - len(r))
+        kode = r[i_id].strip()
+        if kode:
+            peta[kode.upper()] = {
+                "nama": r[i_nama].strip(),
+                "jenis": r[i_jenis].strip() if i_jenis is not None else "",
+            }
+    return peta
+
+
+def _peta_jenis():
+    df = ensure_cols(st.session_state.get("db_jenis"), "jenis")
+    return {str(r["id_jenis"]).strip().upper(): str(r["nama_jenis"]).strip()
+            for _, r in df.iterrows() if str(r["id_jenis"]).strip()}
+
+
+def resolve_instansi(jenis, nama):
+    """Ubah (jenis, nama) yang mungkin berisi kode menjadi nama asli. Return (jenis, nama)."""
+    peta_inst = st.session_state.get("_peta_instansi_lama", {})
+    peta_jenis = _peta_jenis()
+    jenis = str(jenis or "").strip()
+    nama = str(nama or "").strip()
+
+    def ke_jenis(v):
+        return peta_jenis.get(v.upper(), v)
+
+    info = peta_inst.get(jenis.upper())
+    if info:  # kolom jenis_instansi ternyata berisi kode instansi lama (INS-xxx)
+        if not nama:
+            nama = info["nama"]
+        jenis = ke_jenis(info["jenis"]) if info["jenis"] else ""
+    else:
+        jenis = ke_jenis(jenis)
+
+    info2 = peta_inst.get(nama.upper())
+    if info2:
+        nama = info2["nama"]
+    return jenis, nama
+
+
+def tampilkan_nama_juri(df):
+    """DataFrame juri dengan kolom jenis_instansi & nama_instansi berisi nama asli (untuk tampilan)."""
+    df = ensure_cols(df, "juri").copy()
+    hasil = [resolve_instansi(j, n) for j, n in zip(df["jenis_instansi"], df["nama_instansi"])]
+    df["jenis_instansi"] = [h[0] for h in hasil]
+    df["nama_instansi"] = [h[1] for h in hasil]
+    for c in ["jenis_instansi", "nama_instansi"]:
+        df[c] = df[c].apply(
+            lambda v: f"⚠️ data lama ({v})" if _POLA_KODE.match(str(v).strip())
+            else (v if str(v).strip() else "-")
+        )
+    return df
+
+
+def rapikan_data_juri(spreadsheet):
+    """Tulis nama asli instansi ke sheet 'juri' menggantikan kode lama. Return (jumlah_baris, error)."""
+    if not spreadsheet:
+        return 0, "Koneksi ke Google Sheet tidak tersedia."
+    try:
+        ws = get_ws(spreadsheet, "juri")
+        semua = ws.get_all_values()
+        data = []
+        for no, r in enumerate(semua[1:], start=2):
+            r = list(r) + [""] * (5 - len(r))
+            j, n = resolve_instansi(r[2], r[3])
+            if _POLA_KODE.match(j) or _POLA_KODE.match(n) or not n:
+                continue  # belum bisa diterjemahkan, biarkan apa adanya
+            if (j, n) != (r[2].strip(), r[3].strip()):
+                data.append({"range": f"C{no}:D{no}", "values": [[j, n]]})
+        if data:
+            ws.batch_update(data)
+        return len(data), ""
+    except Exception as e:
+        print(f"Gagal merapikan data juri: {e}")
+        return 0, f"{type(e).__name__}: {e}"
+
+
 # ============================ SESSION STATE ============================
 def init_session_db():
     for nama, key in SESSION_KEYS.items():
@@ -262,6 +369,10 @@ def sync_data_from_sheets(spreadsheet_obj):
                 st.session_state[key] = df.reset_index(drop=True)
             else:
                 st.session_state[key] = pd.DataFrame(columns=SCHEMA[nama])
+        try:
+            st.session_state["_peta_instansi_lama"] = _baca_instansi_lama(existing)
+        except Exception as e:
+            print(f"Gagal membaca sheet instansi lama: {e}")
         st.session_state["_last_sync"] = time.time()
         return True, ""
     except Exception as e:
