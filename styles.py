@@ -361,6 +361,128 @@ html body input:-webkit-autofill {
     -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
     -webkit-text-fill-color: #000000 !important;
 }
+
+/* ================= SEMUA KOMPONEN FORM: PUTIH + TULISAN NAVY (anti dark mode) ================= */
+
+/* ---- Radio ---- */
+html body [data-testid="stRadio"] label,
+html body [data-testid="stRadio"] label p,
+html body [data-testid="stRadio"] [data-testid="stMarkdownContainer"] p,
+html body div[role="radiogroup"] label p {
+    color: #112250 !important;
+    -webkit-text-fill-color: #112250 !important;
+}
+html body [data-baseweb="radio"] > div:first-child {
+    background-color: #ffffff !important;
+    border: 2px solid #112250 !important;
+}
+html body [data-baseweb="radio"]:has(input:checked) > div:first-child {
+    background-color: #112250 !important;
+    border-color: #112250 !important;
+}
+html body [data-baseweb="radio"]:has(input:checked) > div:first-child > div {
+    background-color: #ffffff !important;
+}
+
+/* ---- Checkbox / centang ---- */
+html body [data-testid="stCheckbox"] label,
+html body [data-testid="stCheckbox"] label p,
+html body [data-baseweb="checkbox"] {
+    color: #112250 !important;
+    -webkit-text-fill-color: #112250 !important;
+}
+html body [data-baseweb="checkbox"] > div:first-child {
+    background-color: #ffffff !important;
+    border: 2px solid #112250 !important;
+}
+html body [data-baseweb="checkbox"]:has(input:checked) > div:first-child {
+    background-color: #112250 !important;
+    border-color: #112250 !important;
+}
+html body [data-baseweb="checkbox"]:has(input:checked) svg,
+html body [data-baseweb="checkbox"]:has(input:checked) svg path {
+    fill: #ffffff !important;
+    stroke: #ffffff !important;
+    color: #ffffff !important;
+}
+/* checkbox terkunci tetap putih (hanya agak pudar) */
+html body [data-baseweb="checkbox"]:has(input:disabled) > div:first-child {
+    background-color: #ffffff !important;
+}
+html body [data-testid="stCheckbox"]:has(input:disabled) label p { opacity: .55; }
+
+/* ---- Dropdown / selectbox ---- */
+html body [data-baseweb="select"] svg,
+html body [data-baseweb="select"] svg path {
+    fill: #112250 !important;
+    color: #112250 !important;
+}
+html body [data-baseweb="select"] input,
+html body [data-baseweb="select"] [class*="singleValue"],
+html body [data-baseweb="select"] div {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+}
+html body [data-baseweb="popover"],
+html body [data-baseweb="popover"] > div,
+html body [data-baseweb="popover"] [data-baseweb="menu"],
+html body [data-baseweb="popover"] [role="listbox"],
+html body [data-baseweb="popover"] [role="option"],
+html body [data-baseweb="popover"] ul,
+html body [data-baseweb="popover"] li {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+}
+html body [data-baseweb="popover"] [role="option"] *,
+html body [data-baseweb="popover"] li * {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+}
+html body [data-baseweb="popover"] [role="option"]:hover,
+html body [data-baseweb="popover"] [aria-selected="true"] {
+    background-color: #E7E2CE !important;
+}
+
+/* ---- Textarea, number input, stepper ---- */
+html body [data-testid="stNumberInput"] button {
+    background-color: #ffffff !important;
+    color: #112250 !important;
+}
+html body [data-testid="stNumberInput"] button svg { fill: #112250 !important; }
+
+/* ---- Container berborder, expander, dialog ---- */
+html body [data-testid="stVerticalBlockBorderWrapper"],
+html body [data-testid="stExpander"],
+html body [data-testid="stExpander"] details,
+html body [data-testid="stExpander"] summary {
+    background-color: #ffffff !important;
+    color: #112250 !important;
+}
+html body [data-testid="stExpander"] summary p,
+html body [data-testid="stExpander"] summary svg {
+    color: #112250 !important;
+    fill: #112250 !important;
+}
+html body [data-testid="stDialog"] [role="dialog"],
+html body [data-testid="stDialog"] [role="dialog"] * {
+    color-scheme: only light !important;
+}
+
+/* ---- Teks bantu (caption, label, markdown) di area utama ---- */
+html body [data-testid="stMain"] [data-testid="stCaptionContainer"],
+html body [data-testid="stMain"] [data-testid="stCaptionContainer"] p {
+    color: #6B7280 !important;
+    -webkit-text-fill-color: #6B7280 !important;
+}
+html body [data-testid="stMain"] [data-testid="stWidgetLabel"] p {
+    color: #112250 !important;
+    -webkit-text-fill-color: #112250 !important;
+}
+
+/* ---- Tabs (menu Database Google Sheet) ---- */
+html body [data-baseweb="tab-list"] { background-color: transparent !important; }
+html body [data-baseweb="tab"] { color: #112250 !important; background-color: transparent !important; }
 </style>
 """
 
