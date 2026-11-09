@@ -588,8 +588,29 @@ def render_admin_portal():
     # ---------------- 5. PESERTA FAVORIT ----------------
     elif menu_admin == "⭐ Peserta Favorit":
         st.markdown("#### ⭐ Akumulasi Pilihan Peserta Favorit Dewan Juri")
-        if not st.session_state.db_favorit.empty:
-            st.dataframe(st.session_state.db_favorit, use_container_width=True)
+        df_fav = db_helper.ensure_cols(st.session_state.db_favorit, "favorit")
+        if not df_fav.empty:
+            df_j = (db_helper.tampilkan_nama_juri(st.session_state.db_juri)
+                    [["id_juri", "nama_juri", "jenis_instansi", "nama_instansi"]]
+                    .drop_duplicates(subset="id_juri"))
+            df_p = (db_helper.ensure_cols(st.session_state.db_peserta, "peserta")
+                    [["id_peserta", "nama_peserta"]]
+                    .drop_duplicates(subset="id_peserta"))
+
+            df_tampil = (df_fav.merge(df_j, on="id_juri", how="left")
+                               .merge(df_p, on="id_peserta", how="left"))
+            for c in ["nama_juri", "jenis_instansi", "nama_instansi", "nama_peserta"]:
+                df_tampil[c] = df_tampil[c].fillna("-")
+
+            st.dataframe(
+                df_tampil[["waktu_input", "nama_juri", "jenis_instansi", "nama_instansi", "nama_peserta"]]
+                .rename(columns={
+                    "waktu_input": "Waktu Input", "nama_juri": "Nama Juri",
+                    "jenis_instansi": "Instansi Asal", "nama_instansi": "Nama Instansi",
+                    "nama_peserta": "Peserta Favorit",
+                }),
+                use_container_width=True, hide_index=True,
+            )
         else:
             st.info("Belum ada data voting peserta favorit dari dewan juri.")
 
