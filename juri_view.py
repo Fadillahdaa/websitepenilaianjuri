@@ -22,6 +22,12 @@ KRITERIA = [
     "4. Presentasi & Komunikasi",
 ]
 
+# Pilihan jawaban "apakah instansi menerima magang" -> nilai yang disimpan di database
+OPSI_MAGANG = {
+    "✅ Ya, instansi kami menerima magang": "Ya",
+    "❌ Tidak, instansi kami belum menerima magang": "Tidak",
+}
+
 _JURI_CSS = """
 <style>
     html body [data-testid="stDialog"] h1, html body [data-testid="stDialog"] h2,
@@ -271,6 +277,21 @@ def _simpan_favorit(spreadsheet_obj, juri_id, peserta_id):
         detail = f"{type(e).__name__}: {e}"
         print(f"Gagal simpan favorit ke Sheet: {detail}")
         return True, detail
+
+
+def _simpan_magang(spreadsheet_obj, juri_id, status):
+    """Simpan status terima magang ("Ya"/"Tidak") ke aplikasi + Sheet. Return (gagal, detail)."""
+    df = db_helper.ensure_cols(st.session_state.db_juri, "juri")
+    mask = df["id_juri"].astype(str) == str(juri_id)
+    df.loc[mask, "terima_magang"] = status
+    st.session_state.db_juri = df
+
+    ok, serr = db_helper.update_juri_magang(spreadsheet_obj, juri_id, status)
+    return (not ok), serr
+
+
+def _teks_magang(status):
+    return "Menerima magang" if status == "Ya" else "Tidak menerima magang"
 
 
 def _popup(tipe, judul, pesan):
@@ -546,13 +567,14 @@ def render_juri_portal():
                                 "nama_juri": nama_final,
                                 "jenis_instansi": jenis_dipilih,
                                 "nama_instansi": instansi_nama,
+                                "terima_magang": "",
                             }
                             st.session_state.db_juri = pd.concat(
                                 [df_juri, pd.DataFrame([new_row])], ignore_index=True
                             )
                             ok, serr = db_helper.safe_append(
                                 spreadsheet_obj, "juri",
-                                [juri_id_final, nama_final, jenis_dipilih, instansi_nama]
+                                [juri_id_final, nama_final, jenis_dipilih, instansi_nama, ""]
                             )
                             if not ok:
                                 st.warning(f"Data juri gagal ditulis ke Google Sheet: {serr}")
@@ -675,6 +697,46 @@ def render_juri_portal():
                     </div>
                 </div>
             """, unsafe_allow_html=True)
+
+            # ---- Pertanyaan: apakah instansi menerima magang ----
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("#### 🎓 Program Magang / PKL")
+
+            df_juri_all = db_helper.ensure_cols(st.session_state.db_juri, "juri")
+            baris_saya = df_juri_all[df_juri_all["id_juri"].astype(str) == str(juri_id_aktif)]
+            status_saat_ini = str(baris_saya.iloc[-1]["terima_magang"]).strip() if not baris_saya.empty else ""
+
+            daftar_label = list(OPSI_MAGANG.keys())
+            idx_magang = (
+                list(OPSI_MAGANG.values()).index(status_saat_ini)
+                if status_saat_ini in OPSI_MAGANG.values() else None
+            )
+
+            with st.container(border=True):
+                st.markdown(
+                    f"<span style='color:#112250; font-weight:700;'>Apakah <b>{auth['instansi']}</b> "
+                    f"menerima siswa magang?</span>",
+                    unsafe_allow_html=True,
+                )
+                if status_saat_ini in OPSI_MAGANG.values():
+                    st.caption(f"Jawaban Anda saat ini: **{_teks_magang(status_saat_ini)}**")
+                else:
+                    st.caption("Anda belum menjawab pertanyaan ini.")
+
+                pilih_magang = st.radio(
+                    "Pilih jawaban:", options=daftar_label, index=idx_magang,
+                    key="radio_magang", label_visibility="collapsed",
+                )
+                if st.button("💾 Simpan Jawaban", key="simpan_magang", disabled=pilih_magang is None):
+                    status_baru = OPSI_MAGANG[pilih_magang]
+                    gagal, detail = _simpan_magang(spreadsheet_obj, juri_id_aktif, status_baru)
+                    if gagal:
+                        _popup("warning", "Belum masuk ke database",
+                               f"Jawaban tersimpan di aplikasi, tetapi **gagal ditulis ke Google Sheet**.\n\n`{detail}`")
+                    else:
+                        _popup("success", "Jawaban berhasil disimpan",
+                               f"Status magang instansi Anda: **{_teks_magang(status_baru)}**.")
+                    st.rerun()
 
         # ---------------- PENILAIAN PESERTA ----------------
         elif menu_juri == "📝 Penilaian Peserta":

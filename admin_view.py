@@ -118,7 +118,7 @@ def _siapkan_ranking():
     """Return (df_rank, df_detail, jumlah_baris_diabaikan)."""
     df_n = st.session_state.db_penilaian.copy()
     df_p = st.session_state.db_peserta
-    df_j = db_helper.ensure_cols(st.session_state.db_juri, "juri").copy()
+    df_j = db_helper.tampilkan_nama_juri(st.session_state.db_juri)
 
     if df_n.empty or df_p.empty or "id_peserta" not in df_n.columns:
         return pd.DataFrame(), pd.DataFrame(), 0
@@ -525,10 +525,36 @@ def render_admin_portal():
         if df_juri.empty:
             st.info("Belum ada juri yang masuk ke sistem.")
         else:
+            # Ringkasan status magang
+            status_magang = df_juri["terima_magang"].astype(str).str.strip()
+            n_ya = int((status_magang == "Ya").sum())
+            n_tidak = int((status_magang == "Tidak").sum())
+            n_belum = len(df_juri) - n_ya - n_tidak
+            st.caption(
+                f"🎓 Terima magang: **{n_ya}** instansi  ·  Tidak menerima: **{n_tidak}**  ·  Belum diisi: **{n_belum}**"
+            )
+
+            if st.button("🧹 Rapikan data lama di Google Sheet", key="rapikan_juri",
+                         help="Mengganti kode lama (INS-001, dst.) di sheet 'juri' dengan nama asli."):
+                jumlah, serr = db_helper.rapikan_data_juri(spreadsheet_obj)
+                st.session_state["flash_instansi"] = (
+                    ("warning", f"Gagal merapikan data: {serr}") if serr
+                    else ("success", f"{jumlah} baris juri berhasil dirapikan di Google Sheet.")
+                )
+                db_helper.auto_connect_and_sync(force=True)
+                st.rerun()
+
+            df_tampil = db_helper.tampilkan_nama_juri(df_juri)
+            df_tampil["terima_magang"] = (
+                status_magang
+                .map({"Ya": "✅ Menerima", "Tidak": "❌ Tidak menerima"})
+                .fillna("⏳ Belum diisi")
+            )
             st.dataframe(
-                df_juri.rename(columns={
+                df_tampil[["id_juri", "nama_juri", "jenis_instansi", "nama_instansi", "terima_magang"]].rename(columns={
                     "id_juri": "ID", "nama_juri": "Nama Juri",
                     "jenis_instansi": "Instansi Asal", "nama_instansi": "Nama Instansi",
+                    "terima_magang": "Terima Magang",
                 }),
                 use_container_width=True, hide_index=True,
             )
@@ -573,8 +599,29 @@ def render_admin_portal():
     # ---------------- 5. PESERTA FAVORIT ----------------
     elif menu_admin == "⭐ Peserta Favorit":
         st.markdown("#### ⭐ Akumulasi Pilihan Peserta Favorit Dewan Juri")
-        if not st.session_state.db_favorit.empty:
-            st.dataframe(st.session_state.db_favorit, use_container_width=True)
+        df_fav = db_helper.ensure_cols(st.session_state.db_favorit, "favorit")
+        if not df_fav.empty:
+            df_j = (db_helper.tampilkan_nama_juri(st.session_state.db_juri)
+                    [["id_juri", "nama_juri", "jenis_instansi", "nama_instansi"]]
+                    .drop_duplicates(subset="id_juri"))
+            df_p = (db_helper.ensure_cols(st.session_state.db_peserta, "peserta")
+                    [["id_peserta", "nama_peserta"]]
+                    .drop_duplicates(subset="id_peserta"))
+
+            df_tampil = (df_fav.merge(df_j, on="id_juri", how="left")
+                               .merge(df_p, on="id_peserta", how="left"))
+            for c in ["nama_juri", "jenis_instansi", "nama_instansi", "nama_peserta"]:
+                df_tampil[c] = df_tampil[c].fillna("-")
+
+            st.dataframe(
+                df_tampil[["waktu_input", "nama_juri", "jenis_instansi", "nama_instansi", "nama_peserta"]]
+                .rename(columns={
+                    "waktu_input": "Waktu Input", "nama_juri": "Nama Juri",
+                    "jenis_instansi": "Instansi Asal", "nama_instansi": "Nama Instansi",
+                    "nama_peserta": "Peserta Favorit",
+                }),
+                use_container_width=True, hide_index=True,
+            )
         else:
             st.info("Belum ada data voting peserta favorit dari dewan juri.")
 
