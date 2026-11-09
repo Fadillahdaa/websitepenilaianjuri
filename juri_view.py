@@ -64,75 +64,62 @@ _JURI_CSS = """
 </style>
 """
 
+# Tampilan halaman Peserta Favorit: besar, jelas, ramah untuk juri usia 40-60 tahun
 _FAV_CSS = """
 <style>
-    /* Kartu form favorit */
-    html body [data-testid="stMain"] [data-testid="stForm"] {
-        background: #ffffff !important;
-        border: 1px solid #E7E2CE !important;
-        border-radius: 16px !important;
-        padding: 24px !important;
-        box-shadow: 0 8px 24px rgba(17, 34, 80, 0.06) !important;
+    /* Setiap peserta = satu kartu besar */
+    div[class*="st-key-favbox_"] {
+        background: #ffffff;
+        border: 2px solid #E7E2CE;
+        border-radius: 14px;
+        padding: 10px 18px;
+        margin-bottom: 8px;
+        transition: all 0.18s ease-in-out;
+    }
+    div[class*="st-key-favbox_"]:has(input:checked) {
+        background: #EEF2FB;
+        border-color: #112250;
+        box-shadow: 0 0 0 1px #112250, 0 4px 12px rgba(17, 34, 80, 0.12);
     }
 
-    /* Judul "Daftar Kandidat Peserta" */
-    html body [data-testid="stMain"] [data-testid="stRadio"] > label p {
+    /* Nama peserta: besar & tebal */
+    div[class*="st-key-favbox_"] label p {
+        font-size: 1.25rem !important;
+        font-weight: 700 !important;
         color: #112250 !important;
-        font-weight: 800 !important;
-        font-size: 1rem !important;
-        margin-bottom: 6px !important;
+        line-height: 1.5 !important;
     }
 
-    html body [data-testid="stMain"] [data-testid="stRadio"] [role="radiogroup"] {
-        gap: 10px !important;
+    /* Kotak centang diperbesar, warna navy (bukan merah) */
+    div[class*="st-key-favbox_"] [data-testid="stCheckbox"] span[role="checkbox"],
+    div[class*="st-key-favbox_"] [data-testid="stCheckbox"] [data-baseweb="checkbox"] > div:first-child {
+        width: 30px !important;
+        height: 30px !important;
     }
-
-    /* Setiap pilihan = satu kartu */
-    html body [data-testid="stMain"] [data-testid="stRadio"] label[data-baseweb="radio"] {
-        width: 100% !important;
-        margin: 0 !important;
-        padding: 14px 18px !important;
-        background: #F5F4F0 !important;
-        border: 1.5px solid #E7E2CE !important;
-        border-radius: 12px !important;
-        transition: all 0.18s ease-in-out !important;
-        cursor: pointer !important;
-    }
-    html body [data-testid="stMain"] [data-testid="stRadio"] label[data-baseweb="radio"]:hover {
-        background: #ffffff !important;
-        border-color: #3B507D !important;
-        box-shadow: 0 4px 12px rgba(17, 34, 80, 0.10) !important;
-    }
-
-    /* Pilihan yang aktif */
-    html body [data-testid="stMain"] [data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) {
-        background: #EEF2FB !important;
-        border-color: #112250 !important;
-        box-shadow: 0 0 0 1px #112250, 0 4px 12px rgba(17, 34, 80, 0.12) !important;
-    }
-
-    /* Teks pilihan */
-    html body [data-testid="stMain"] [data-testid="stRadio"] label[data-baseweb="radio"] p {
-        color: #112250 !important;
-        font-size: 1rem !important;
-        font-weight: 600 !important;
-    }
-    html body [data-testid="stMain"] [data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) p {
-        font-weight: 800 !important;
-    }
-
-    /* Lingkaran radio: navy (bukan merah) saat dipilih */
-    html body [data-testid="stMain"] [data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) > div:first-child {
+    div[class*="st-key-favbox_"] [data-baseweb="checkbox"]:has(input:checked) > div:first-child {
         background-color: #112250 !important;
         border-color: #112250 !important;
     }
 
-    /* Tag pilihan multiselect: navy (bukan merah) */
-    html body [data-testid="stMain"] [data-baseweb="tag"] {
-        background-color: #112250 !important;
+    /* Ringkasan pilihan */
+    div[class*="st-key-ringkasan_fav"] {
+        background: #ffffff;
+        border: 2px dashed #3B507D;
+        border-radius: 14px;
+        padding: 14px 20px;
+        margin: 10px 0 16px 0;
     }
-    html body [data-testid="stMain"] [data-baseweb="tag"] span {
-        color: #ffffff !important;
+    div[class*="st-key-ringkasan_fav"] p {
+        font-size: 1.15rem !important;
+        color: #112250 !important;
+    }
+
+    /* Tombol simpan besar */
+    div[class*="st-key-kirim_fav"] .stButton > button {
+        font-size: 1.25rem !important;
+        padding: 16px 20px !important;
+        font-weight: 800 !important;
+        border-radius: 14px !important;
     }
 </style>
 """
@@ -778,14 +765,10 @@ def render_juri_portal():
                         _popup_nilai(peserta_nama, hasil, diperbarui=sudah_pernah)
                         st.rerun()
 
-        # ---------------- PESERTA FAVORIT (TEPAT 3) ----------------
+        # ---------------- PESERTA FAVORIT (WAJIB TEPAT 3, HANYA NAMA) ----------------
         elif menu_juri == "⭐ Peserta Favorit":
-            st.markdown(f"### ⭐ {JUMLAH_FAVORIT} Peserta Favorit Pilihan Anda")
-            st.markdown(
-                f"<p style='color: #666; font-size: 0.9rem;'>Pilih <b>tepat {JUMLAH_FAVORIT}</b> peserta favorit Anda "
-                f"(tidak boleh kurang atau lebih). Pilihan ini akan menjadi bagian dari hasil akhir penilaian.</p>",
-                unsafe_allow_html=True,
-            )
+            st.markdown(_FAV_CSS, unsafe_allow_html=True)
+            st.markdown(f"### ⭐ Pilih {JUMLAH_FAVORIT} Peserta Favorit Anda")
 
             df_peserta = st.session_state.db_peserta
             if df_peserta.empty:
@@ -799,60 +782,109 @@ def render_juri_portal():
                 df_fav = db_helper.ensure_cols(st.session_state.db_favorit, "favorit")
                 fav_saya = df_fav[df_fav["id_juri"].astype(str) == str(juri_id_aktif)]
 
-                list_id = df_peserta["id_peserta"].tolist()
-                label_map = {
-                    row["id_peserta"]: f"{row['nama_peserta']} [{row['id_peserta']}]"
-                    for _, row in df_peserta.iterrows()
-                }
+                # ID hanya dipakai di belakang layar; yang tampil ke juri hanya nama
+                df_unik = df_peserta.drop_duplicates("id_peserta")
+                list_id = df_unik["id_peserta"].tolist()
+                nama_by_id = dict(zip(df_unik["id_peserta"], df_unik["nama_peserta"]))
+
                 favorit_saat_ini = [
                     p for p in dict.fromkeys(fav_saya["id_peserta"].tolist()) if p in list_id
-                ]
+                ][:JUMLAH_FAVORIT]
 
+                # Isi awal kotak centang dari pilihan yang sudah tersimpan
+                for pid in list_id:
+                    kunci = f"fav_{juri_id_aktif}_{pid}"
+                    if kunci not in st.session_state:
+                        st.session_state[kunci] = pid in favorit_saat_ini
+
+                # Status pilihan tersimpan
                 if len(favorit_saat_ini) == JUMLAH_FAVORIT:
-                    st.info("Favorit Anda saat ini:\n\n" + "\n".join(f"- {label_map[p]}" for p in favorit_saat_ini))
+                    st.success(
+                        "✅ Pilihan favorit Anda sudah tersimpan. "
+                        "Jika ingin mengubah, hilangkan centang lalu pilih kembali dan simpan."
+                    )
                 elif favorit_saat_ini:
                     st.warning(
                         f"Pilihan lama Anda hanya {len(favorit_saat_ini)} peserta. "
                         f"Lengkapi menjadi {JUMLAH_FAVORIT}."
                     )
-
-                st.markdown(_FAV_CSS, unsafe_allow_html=True)
-
-                with st.container(border=True):
-                    pilihan = st.multiselect(
-                        f"Pilih {JUMLAH_FAVORIT} peserta favorit:",
-                        options=list_id,
-                        default=favorit_saat_ini[:JUMLAH_FAVORIT],
-                        format_func=lambda x: label_map[x],
-                        max_selections=JUMLAH_FAVORIT,
-                        key=f"fav_multi_{juri_id_aktif}",
-                        placeholder="Klik untuk memilih peserta...",
+                else:
+                    st.info(
+                        f"**Cara memilih:**\n\n"
+                        f"1. Centang nama peserta yang paling Anda sukai.\n"
+                        f"2. Pilih **tepat {JUMLAH_FAVORIT} peserta** (tidak boleh kurang atau lebih).\n"
+                        f"3. Tekan tombol **Simpan Pilihan Favorit** di bagian bawah."
                     )
 
-                    n = len(pilihan)
-                    if n == JUMLAH_FAVORIT:
-                        st.markdown(
-                            f"<span style='color:#0b7337; font-weight:700;'>✅ {n}/{JUMLAH_FAVORIT} peserta dipilih</span>",
-                            unsafe_allow_html=True,
-                        )
-                    else:
-                        st.markdown(
-                            f"<span style='color:#d97706; font-weight:700;'>⏳ {n}/{JUMLAH_FAVORIT} dipilih "
-                            f"— pilih {JUMLAH_FAVORIT - n} lagi</span>",
-                            unsafe_allow_html=True,
-                        )
+                # Hitung pilihan saat ini
+                terpilih = [
+                    pid for pid in list_id
+                    if st.session_state.get(f"fav_{juri_id_aktif}_{pid}", False)
+                ]
+                n = len(terpilih)
 
-                    if st.button("⭐ Simpan Pilihan Favorit", key="simpan_favorit",
-                                 disabled=(n != JUMLAH_FAVORIT)):
-                        gagal, detail = _simpan_favorit(spreadsheet_obj, juri_id_aktif, pilihan)
-                        daftar = "\n".join(f"- {label_map[p]}" for p in pilihan)
-                        if gagal:
-                            _popup("warning", "Belum masuk ke database",
-                                   f"Pilihan favorit tersimpan di aplikasi, tetapi **gagal ditulis ke Google Sheet**.\n\n`{detail}`")
-                        else:
-                            _popup("success", "Favorit berhasil disimpan",
-                                   f"{JUMLAH_FAVORIT} peserta favorit Anda:\n\n{daftar}")
-                        st.rerun()
+                # Penghitung besar
+                if n == JUMLAH_FAVORIT:
+                    st.markdown(
+                        f"<div style='background:#E8F7EE; border:2px solid #0b7337; border-radius:12px; "
+                        f"padding:12px 18px; margin:8px 0 14px 0; color:#0b7337; font-weight:800; font-size:1.2rem;'>"
+                        f"✅ Terpilih {n} dari {JUMLAH_FAVORIT} — siap disimpan</div>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        f"<div style='background:#FFF6E0; border:2px solid #d97706; border-radius:12px; "
+                        f"padding:12px 18px; margin:8px 0 14px 0; color:#b45309; font-weight:800; font-size:1.2rem;'>"
+                        f"⏳ Terpilih {n} dari {JUMLAH_FAVORIT} — pilih {JUMLAH_FAVORIT - n} lagi</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                # Daftar peserta: HANYA NAMA
+                for pid in list_id:
+                    kunci = f"fav_{juri_id_aktif}_{pid}"
+                    dicentang = st.session_state.get(kunci, False)
+                    # Setelah 3 terpilih, sisa pilihan dikunci agar tidak bisa lebih dari 3
+                    terkunci = n >= JUMLAH_FAVORIT and not dicentang
+                    with st.container(key=f"favbox_{juri_id_aktif}_{pid}"):
+                        st.checkbox(nama_by_id[pid], key=kunci, disabled=terkunci)
+
+                if n >= JUMLAH_FAVORIT:
+                    st.caption(
+                        f"Sudah {JUMLAH_FAVORIT} terpilih, pilihan lain terkunci. "
+                        f"Hilangkan centang salah satu jika ingin mengganti."
+                    )
+
+                # Ringkasan pilihan
+                if terpilih:
+                    with st.container(key="ringkasan_fav"):
+                        st.markdown("**Pilihan Anda:**")
+                        for i, pid in enumerate(terpilih, start=1):
+                            st.markdown(f"**{i}.** {nama_by_id[pid]}")
+
+                st.markdown("<br>", unsafe_allow_html=True)
+
+                # Tombol simpan: aktif hanya jika tepat 3
+                with st.container(key="kirim_fav"):
+                    simpan_fav = st.button(
+                        "⭐ Simpan Pilihan Favorit",
+                        key="simpan_favorit",
+                        disabled=(n != JUMLAH_FAVORIT),
+                        use_container_width=True,
+                        type="primary",
+                    )
+                if n != JUMLAH_FAVORIT:
+                    st.caption(f"Tombol akan aktif setelah Anda memilih tepat {JUMLAH_FAVORIT} peserta.")
+
+                if simpan_fav and n == JUMLAH_FAVORIT:
+                    gagal, detail = _simpan_favorit(spreadsheet_obj, juri_id_aktif, terpilih)
+                    daftar = "\n".join(f"- {nama_by_id[p]}" for p in terpilih)
+                    if gagal:
+                        _popup("warning", "Belum masuk ke database",
+                               f"Pilihan favorit tersimpan di aplikasi, tetapi **gagal ditulis ke Google Sheet**.\n\n`{detail}`")
+                    else:
+                        _popup("success", "Favorit berhasil disimpan",
+                               f"{JUMLAH_FAVORIT} peserta favorit Anda:\n\n{daftar}")
+                    st.rerun()
 
         # ---------------- RIWAYAT + EDIT NILAI ----------------
         elif menu_juri == "📋 Riwayat Penilaian":
