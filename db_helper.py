@@ -20,6 +20,7 @@ SCOPES = [
 # Nama sheet (SEMUA HURUF KECIL) -> header kolom
 # "jenis"  = pilihan dropdown instansi (diisi admin)
 # "juri"   = data juri + instansinya (digabung, tanpa sheet instansi terpisah)
+#            kolom terima_magang berisi "Ya" / "Tidak" / "" (belum diisi)
 SCHEMA = {
     "jenis": ["id_jenis", "nama_jenis"],
     "juri": ["id_juri", "nama_juri", "jenis_instansi", "nama_instansi", "terima_magang"],
@@ -153,8 +154,10 @@ def safe_append(spreadsheet, sheet_name, row):
         print(f"Gagal append ke sheet {sheet_name}: {e}")
         return False, f"{type(e).__name__}: {e}"
 
+
 def update_juri_magang(spreadsheet, id_juri, status):
-    """Simpan status terima magang ke kolom E sheet 'juri'. Return (berhasil, pesan_error)."""
+    """Simpan status terima magang ("Ya"/"Tidak") ke kolom E sheet 'juri'.
+    Return (berhasil, pesan_error)."""
     if not spreadsheet:
         return False, "Koneksi ke Google Sheet tidak tersedia."
     try:
@@ -162,7 +165,8 @@ def update_juri_magang(spreadsheet, id_juri, status):
         cells = [c for c in ws.findall(str(id_juri), in_column=1) if c.value == str(id_juri)]
         if not cells:
             return False, "ID juri tidak ditemukan di Sheet."
-        ws.update_cell(cells[0].row, 5, status)
+        kolom = SCHEMA["juri"].index("terima_magang") + 1  # = 5 (kolom E)
+        ws.update_cell(cells[0].row, kolom, status)
         return True, ""
     except Exception as e:
         print(f"Gagal update status magang: {e}")
