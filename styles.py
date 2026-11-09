@@ -300,6 +300,67 @@ section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: .4rem !i
         flex: 1 1 100% !important;
     }
 }
+
+/* ================= INPUT SELALU PUTIH, TULISAN HITAM (anti dark mode) ================= */
+/* Blok ini sengaja diletakkan PALING BAWAH agar menang dari aturan lain. */
+html body [data-baseweb="input"],
+html body [data-baseweb="input"] > div,
+html body [data-baseweb="base-input"],
+html body [data-baseweb="textarea"],
+html body [data-baseweb="textarea"] > div,
+html body [data-baseweb="select"] > div,
+html body [data-baseweb="select"] > div > div {
+    background-color: #ffffff !important;
+    border-color: #CFCAB8 !important;
+    color: #000000 !important;
+}
+
+html body [data-testid="stMain"] input,
+html body [data-testid="stMain"] textarea,
+html body [data-testid="stForm"] input,
+html body [data-testid="stForm"] textarea,
+html body [data-testid="stDialog"] input,
+html body [data-testid="stDialog"] textarea {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+    caret-color: #000000 !important;
+    color-scheme: only light !important;
+}
+
+/* Placeholder abu-abu agar terbaca di latar putih */
+html body input::placeholder,
+html body textarea::placeholder {
+    color: #6B7280 !important;
+    -webkit-text-fill-color: #6B7280 !important;
+    opacity: 1 !important;
+}
+
+/* Teks dropdown (selectbox) hitam */
+html body [data-testid="stForm"] [data-baseweb="select"] *,
+html body [data-testid="stMain"] [data-baseweb="select"] * {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+}
+
+/* Daftar pilihan dropdown (muncul di luar form, jadi dipisah) */
+html body [data-baseweb="popover"] [role="listbox"],
+html body [data-baseweb="popover"] ul,
+html body [data-baseweb="popover"] li,
+html body [data-baseweb="menu"] {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+}
+html body [data-baseweb="popover"] li:hover,
+html body [data-baseweb="popover"] [aria-selected="true"] {
+    background-color: %CHAMPAGNE% !important;
+}
+
+/* Isian otomatis Chrome (autofill) tetap putih */
+html body input:-webkit-autofill {
+    -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
+    -webkit-text-fill-color: #000000 !important;
+}
 </style>
 """
 
