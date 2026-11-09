@@ -18,11 +18,12 @@ MENU_DASHBOARD = "🏠 Dashboard"
 # Jumlah peserta favorit yang harus dipilih setiap juri (tidak boleh kurang / lebih)
 JUMLAH_FAVORIT = 3
 
+# Nama kriteria (bobot ditampilkan terpisah di samping kolom input)
 KRITERIA = [
-    "1. Riset & Relevansi Solusi (40%)",
-    "2. Kualitas Visual & Infografis (30%)",
-    "3. Kualitas Video (20%)",
-    "4. Presentasi & Komunikasi (10%)",
+    "1. Riset & Relevansi Solusi",
+    "2. Kualitas Visual & Infografis",
+    "3. Kualitas Video",
+    "4. Presentasi & Komunikasi",
 ]
 
 # Bobot tiap kriteria (urutan sama dengan KRITERIA, total harus 1.0)
@@ -157,18 +158,28 @@ def _hitung_rata(row):
 
 def _input_nilai(prefix, defaults):
     """
-    4 kolom nilai (kosong, placeholder "60 - 100"). Nilai > 100 atau bukan angka ditolak.
+    4 kolom nilai dengan badge bobot di samping tiap kolom.
+    Nilai > 100 atau bukan angka ditolak.
     Return (skor, total, nilai_akhir); ketiganya None sampai keempat nilai valid.
     """
     nilai, lengkap = [], True
-    for i, (label, d) in enumerate(zip(KRITERIA, defaults), start=1):
-        mentah = st.text_input(
-            label,
-            value="" if d is None else str(d),
-            placeholder="60 - 100",
-            max_chars=3,
-            key=f"{prefix}_k{i}",
-        ).strip()
+    for i, (label, d, b) in enumerate(zip(KRITERIA, defaults, BOBOT), start=1):
+        col_in, col_bobot = st.columns([4, 1.2], vertical_alignment="bottom")
+        with col_in:
+            mentah = st.text_input(
+                label,
+                value="" if d is None else str(d),
+                placeholder="60 - 100",
+                max_chars=3,
+                key=f"{prefix}_k{i}",
+            ).strip()
+        with col_bobot:
+            st.markdown(
+                f"<div style='background:#112250; color:#3BF07D; text-align:center; "
+                f"border-radius:10px; padding:9px 0; font-weight:800; font-size:1rem; "
+                f"margin-bottom:2px;'>Bobot {int(round(b * 100))}%</div>",
+                unsafe_allow_html=True,
+            )
 
         if mentah == "":
             lengkap = False
@@ -186,11 +197,13 @@ def _input_nilai(prefix, defaults):
     if lengkap and len(nilai) == len(KRITERIA):
         total = sum(nilai)
         rata = _hitung_berbobot(nilai)
+        rumus = " + ".join(f"({n} × {int(round(b * 100))}%)" for n, b in zip(nilai, BOBOT))
         isi = f"""
             <div>
                 <span style="color: #6B7280; font-weight: 600;">Nilai Akhir (Berbobot):</span>
                 <span style="font-size: 1.7rem; font-weight: 800; color: #112250; margin-left: 10px;">{rata:.2f}</span>
-            </div>"""
+            </div>
+            <div style="color: #6B7280; font-size: 0.8rem; margin-top: 4px;">{rumus}</div>"""
         hasil = (nilai, total, rata)
     else:
         isi = """
@@ -720,7 +733,13 @@ def render_juri_portal():
         # ---------------- PENILAIAN PESERTA ----------------
         elif menu_juri == "📝 Penilaian Peserta":
             st.markdown("### 📝 Form Penilaian Karya Peserta")
-            st.markdown("<p style='color: #666; font-size: 0.9rem;'>Berikan nilai pada setiap kriteria dengan rentang 60 - 100. Nilai akhir dihitung berbobot: Riset & Relevansi Solusi 40%, Kualitas Visual & Infografis 30%, Kualitas Video 20%, Presentasi & Komunikasi 10%.</p>", unsafe_allow_html=True)
+            st.markdown(
+                "<p style='color: #666; font-size: 0.9rem;'>Isi nilai 0 - 100 pada setiap kriteria. "
+                "Nilai akhir dihitung berbobot: Riset &amp; Relevansi Solusi × 40% + "
+                "Kualitas Visual &amp; Infografis × 30% + Kualitas Video × 20% + "
+                "Presentasi &amp; Komunikasi × 10%.</p>",
+                unsafe_allow_html=True,
+            )
 
             df_peserta = st.session_state.db_peserta
             if df_peserta.empty:
@@ -758,7 +777,7 @@ def render_juri_portal():
                     default_catatan = str(prev.get("catatan", "") or "")
                     st.info("ℹ️ Anda sudah pernah menilai peserta ini. Menyimpan lagi akan memperbarui nilai Anda.")
 
-                st.markdown("<h4 style='margin-top: 14px;'>4 Kriteria Penilaian (Rentang 60 - 100)</h4>", unsafe_allow_html=True)
+                st.markdown("<h4 style='margin-top: 14px;'>4 Kriteria Penilaian (Berbobot)</h4>", unsafe_allow_html=True)
                 with st.container(border=True):
                     skor, total, rata = _input_nilai(f"nilai_{peserta_id}", default_scores)
                     catatan = st.text_area(
@@ -906,9 +925,12 @@ def render_juri_portal():
                 df_peserta = st.session_state.db_peserta
                 nama_map = dict(zip(df_peserta["id_peserta"].astype(str), df_peserta["nama_peserta"]))
 
-                lebar = [0.4, 2.6, 0.7, 0.7, 0.7, 0.7, 1.0, 1.0]
+                lebar = [0.4, 2.4, 0.9, 0.9, 0.9, 0.9, 1.0, 1.0]
                 head = st.columns(lebar, vertical_alignment="center")
-                for kolom, judul in zip(head, ["No", "Peserta", "K1", "K2", "K3", "K4", "Nilai Akhir", ""]):
+                judul_kolom = ["No", "Peserta"] + [
+                    f"K{i} ({int(round(b * 100))}%)" for i, b in enumerate(BOBOT, start=1)
+                ] + ["Nilai Akhir", ""]
+                for kolom, judul in zip(head, judul_kolom):
                     kolom.markdown(f"**{judul}**" if judul else "")
 
                 for no, (_, r) in enumerate(df_pen_saya.iterrows(), start=1):
