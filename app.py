@@ -2,7 +2,6 @@ import streamlit as st
 import db_helper
 import juri_view
 import admin_view
-import time
 
 # ==============================================================================
 # KONFIGURASI HALAMAN UTAMA (HANYA SEKALI DI AWAL RUN)
@@ -26,19 +25,6 @@ hide_streamlit_style = """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
-
-# ===== TES KECEPATAN (SEMENTARA, HAPUS NANTI) =====
-t0 = time.time()
-db, err = db_helper.get_connected_spreadsheet()
-st.write(f"Tahap 1 (login Firebase): {time.time() - t0:.1f} detik. Error: {err}")
-
-t1 = time.time()
-ok, serr = db_helper.sync_data_from_sheets(db, force=True)
-st.write(f"Tahap 2 (baca data): {time.time() - t1:.1f} detik. Berhasil: {ok}. Error: {serr}")
-# ===== AKHIR TES =====
-
-# --- INISIALISASI SESSION STATE GLOBAL & PEMULIHAN SESI JURI DARI URL ---
-# -----------------------------------------------------------------------------
 
 # --- INISIALISASI SESSION STATE GLOBAL & PEMULIHAN SESI JURI DARI URL ---
 if "juri_auth" not in st.session_state:
