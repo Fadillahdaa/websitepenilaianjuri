@@ -256,6 +256,9 @@ def dialog_hapus_peserta(id_peserta, nama, db_client):
 
 # ============================ HALAMAN ADMIN ============================
 def render_admin_portal():
+    db_helper.init_session_db()
+    db_client, conn_err = db_helper.auto_connect_and_sync()
+    
     if "admin_logged_in" not in st.session_state:
         st.session_state.admin_logged_in = False
         st.session_state.admin_login_time = 0.0

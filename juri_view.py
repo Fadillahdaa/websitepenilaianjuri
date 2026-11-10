@@ -340,6 +340,7 @@ def dialog_edit_nilai(peserta_id, peserta_nama, db_client, juri_id):
 
 # ============================ HALAMAN JURI ============================
 def render_juri_portal():
+    db_helper.init_session_db()
     db_client, conn_err = db_helper.auto_connect_and_sync()
     tanggal_format = db_helper.get_current_date_indonesia()
 
