@@ -192,6 +192,9 @@ def _fetch_all(_db):
         print(f"ERROR SAAT STREAM FIRESTORE: {e}")
     return hasil
 
+def invalidate_cache():
+    _fetch_all.clear()
+    
 def init_session_db():
     for nama, key in SESSION_KEYS.items():
         if key not in st.session_state:
