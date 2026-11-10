@@ -1,4 +1,5 @@
 import io
+import time
 import base64
 import streamlit as st
 import pandas as pd
@@ -12,6 +13,9 @@ if _dialog is None:
 
 # Jumlah favorit per juri (samakan dengan JUMLAH_FAVORIT di juri_view.py)
 JUMLAH_FAVORIT = 3
+
+# Batas waktu sesi admin dalam detik (2 jam = 2 * 3600 detik)
+ADMIN_SESSION_TIMEOUT = 2 * 3600
 
 _ADMIN_CSS = """
 <style>
@@ -92,7 +96,6 @@ _ADMIN_CSS = """
 
 _HIDE_SIDEBAR_CSS = """
 <style>
-
     /* Halaman login: sembunyikan sidebar kosong (menimpa aturan di styles.py) */
     html body section[data-testid="stSidebar"],
     html body section[data-testid="stSidebar"][aria-expanded="false"],
@@ -109,7 +112,6 @@ _HIDE_SIDEBAR_CSS = """
 
 _KRIT = ["k1", "k2", "k3", "k4"]
 # Bobot tiap kriteria: Riset 40% · Visual 30% · Video 20% · Presentasi 10%
-# (samakan dengan BOBOT di juri_view.py)
 _BOBOT = [0.40, 0.30, 0.20, 0.10]
 
 
@@ -133,26 +135,22 @@ def _siapkan_ranking():
     if df_n.empty or df_p.empty or "id_peserta" not in df_n.columns:
         return pd.DataFrame(), pd.DataFrame(), 0
 
-    # Hanya baris yang id_peserta-nya benar-benar ada di data peserta
     valid = df_n["id_peserta"].isin(df_p["id_peserta"])
     diabaikan = int((~valid).sum())
     df_n = df_n[valid].copy()
 
     for k in _KRIT:
         df_n[k] = pd.to_numeric(df_n[k], errors="coerce") if k in df_n.columns else float("nan")
-    # Nilai akhir tiap juri = K1x40% + K2x30% + K3x20% + K4x10%
-    # min_count: jika ada kriteria kosong, hasilnya NaN lalu dibuang oleh dropna di bawah
+    
     df_n["rata_juri"] = (df_n[_KRIT] * _BOBOT).sum(axis=1, min_count=len(_KRIT)).round(2)
     df_n = df_n.dropna(subset=["rata_juri"])
     if df_n.empty:
         return pd.DataFrame(), pd.DataFrame(), diabaikan
 
-    # Jika satu juri menilai peserta yang sama berkali-kali, ambil yang terbaru
     if "waktu_input" in df_n.columns:
         df_n = df_n.sort_values("waktu_input")
     df_n = df_n.drop_duplicates(subset=["id_juri", "id_peserta"], keep="last")
 
-    # Gabungkan identitas juri (nama juri + nama DUDIKA)
     kolom_juri = [c for c in ["id_juri", "nama_juri", "jenis_instansi", "nama_instansi"] if c in df_j.columns]
     df_detail = df_n.merge(df_j[kolom_juri], on="id_juri", how="left")
     for c in ["nama_juri", "jenis_instansi", "nama_instansi"]:
@@ -160,7 +158,6 @@ def _siapkan_ranking():
             df_detail[c] = "-"
         df_detail[c] = df_detail[c].fillna("-")
 
-    # Ranking = rata-rata dari nilai akhir berbobot tiap juri
     df_rank = (
         df_detail.groupby("id_peserta")
         .agg(nilai_akhir=("rata_juri", "mean"), jumlah_juri=("id_juri", "nunique"))
@@ -258,6 +255,16 @@ def dialog_hapus_peserta(id_peserta, nama, spreadsheet_obj):
 def render_admin_portal():
     if "admin_logged_in" not in st.session_state:
         st.session_state.admin_logged_in = False
+        st.session_state.admin_login_time = 0.0
+
+    # --- CEK BATAS WAKTU SESI 2 JAM ---
+    if st.session_state.admin_logged_in:
+        elapsed_time = time.time() - st.session_state.get("admin_login_time", 0.0)
+        if elapsed_time > ADMIN_SESSION_TIMEOUT:
+            # Sesi kedaluwarsa lebih dari 2 jam, paksa logout
+            st.session_state.admin_logged_in = False
+            st.session_state.admin_login_time = 0.0
+            st.warning("⏱️ Sesi login Anda telah berakhir (lebih dari 2 jam). Silakan login kembali.")
 
     # ================= FORM LOGIN ADMIN (TAMPIL DI TENGAH) =================
     if not st.session_state.admin_logged_in:
@@ -281,7 +288,6 @@ def render_admin_portal():
                 username_input = st.text_input("Username", placeholder="Masukkan username admin")
                 password_input = st.text_input("Password", type="password", placeholder="Masukkan password admin")
                 
-                # Membagi kolom di dalam form agar tombol pas berada di tengah
                 _, btn_col, _ = st.columns([0.3, 2, 0.3])
                 with btn_col:
                     btn_login = st.form_submit_button("Masuk Panel Admin ➔", use_container_width=True)
@@ -289,6 +295,7 @@ def render_admin_portal():
                 if btn_login:
                     if username_input == "superadmin" and password_input == "adminsuper*3#12":
                         st.session_state.admin_logged_in = True
+                        st.session_state.admin_login_time = time.time()  # Catat waktu login saat ini
                         st.success("Login berhasil! Memuat sistem...")
                         st.rerun()
                     else:
@@ -332,6 +339,7 @@ def render_admin_portal():
         
         if menu_admin == "🚪 Logout Admin":
             st.session_state.admin_logged_in = False
+            st.session_state.admin_login_time = 0.0
             st.session_state["menu_admin_state"] = "📊 Dashboard"
             st.rerun()
 
@@ -371,9 +379,7 @@ def render_admin_portal():
         df_peserta = st.session_state.db_peserta
         medali = {1: "🥇", 2: "🥈", 3: "🥉"}
 
-        # ---- 1) Top 3 Ranking Sementara (nilai berbobot) ----
         st.markdown("#### 🏆 Top 3 Ranking Sementara")
-        # Memakai perhitungan yang sama dengan menu Ranking & Nilai
         df_rank_dash, _, _ = _siapkan_ranking()
         if not df_rank_dash.empty:
             top3 = df_rank_dash.head(3)[["peringkat", "nama_peserta", "nilai_akhir"]].copy()
@@ -386,12 +392,10 @@ def render_admin_portal():
         else:
             st.info("Belum ada data penilaian.")
 
-        # ---- 2) Top 3 Peserta Favorit (di bawah ranking) ----
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("#### ⭐ Top 3 Peserta Favorit")
         df_fav = db_helper.ensure_cols(st.session_state.db_favorit, "favorit")
         if not df_fav.empty and not df_peserta.empty and "id_peserta" in df_fav.columns:
-            # Hitung jumlah juri unik yang memilih tiap peserta
             fav_counts = (
                 df_fav.drop_duplicates(subset=["id_juri", "id_peserta"])["id_peserta"]
                 .value_counts().reset_index()
@@ -529,7 +533,6 @@ def render_admin_portal():
         if df_juri.empty:
             st.info("Belum ada juri yang masuk ke sistem.")
         else:
-            # Ringkasan status magang
             status_magang = df_juri["terima_magang"].astype(str).str.strip()
             n_ya = int((status_magang == "Ya").sum())
             n_tidak = int((status_magang == "Tidak").sum())
@@ -578,7 +581,7 @@ def render_admin_portal():
             st.info("Belum ada data penilaian masuk dari dewan juri.")
         else:
             if diabaikan:
-                st.warning(f"{diabaikan} baris penilaian diabaikan karena ID peserta tidak cocok dengan data peserta (cek sheet Penilaian).")
+                st.warning(f"{diabaikan} baris penilaian diabaikan karena ID peserta tidak cocok dengan data peserta.")
 
             medali = {1: "🥇", 2: "🥈", 3: "🥉"}
             for _, r in df_rank.iterrows():
@@ -624,7 +627,6 @@ def render_admin_portal():
             for c in ["nama_juri", "jenis_instansi", "nama_instansi", "nama_peserta"]:
                 df_tampil[c] = df_tampil[c].fillna("-")
 
-            # Rekap vote per peserta: SEMUA peserta, urut peringkat 1..N
             st.markdown("##### 🏅 Rekap Vote per Peserta (Peringkat)")
             votes = (
                 df_fav.drop_duplicates(subset=["id_juri", "id_peserta"])["id_peserta"]
@@ -649,7 +651,7 @@ def render_admin_portal():
                 tampil_rekap,
                 use_container_width=True,
                 hide_index=True,
-                height=(len(tampil_rekap) + 1) * 35 + 3,  # semua baris terlihat tanpa scroll
+                height=(len(tampil_rekap) + 1) * 35 + 3,
                 column_config={
                     "Peringkat": st.column_config.TextColumn("Peringkat", width="small"),
                     "Total Voting": st.column_config.NumberColumn("Total Voting", width="small"),
@@ -660,13 +662,11 @@ def render_admin_portal():
                 f"· Skor sama = peringkat sama, diurutkan abjad."
             )
 
-            # Juri yang belum lengkap pilihannya
             per_juri = df_fav.groupby("id_juri")["id_peserta"].nunique()
             kurang = per_juri[per_juri != JUMLAH_FAVORIT]
             if not kurang.empty:
                 st.warning(
-                    f"{len(kurang)} juri belum memiliki tepat {JUMLAH_FAVORIT} pilihan favorit "
-                    f"(data lama / belum lengkap)."
+                    f"{len(kurang)} juri belum memiliki tepat {JUMLAH_FAVORIT} pilihan favorit."
                 )
 
             st.markdown("##### 📋 Detail Pilihan Tiap Juri")

@@ -26,12 +26,10 @@ st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 if "juri_auth" not in st.session_state:
     st.session_state.juri_auth = {"is_logged_in": False, "id_juri": "", "nama": "", "jenis": "", "instansi": ""}
 
-# Jika session di RAM kosong tapi ada parameter juri_id di URL (misal setelah refresh), pulihkan otomatis!
+# Jika session juri di RAM kosong tapi ada parameter juri_id di URL (setelah refresh), pulihkan otomatis!
 if not st.session_state.juri_auth["is_logged_in"] and "juri_id" in st.query_params:
     saved_juri_id = st.query_params["juri_id"]
-    # Pastikan database juri sudah tersinkronisasi/dimuat
     if "db_juri" not in st.session_state:
-        # Panggil sinkronisasi database awal jika diperlukan
         _, _ = db_helper.auto_connect_and_sync()
         
     df_juri = db_helper.ensure_cols(st.session_state.get("db_juri"), "juri")
@@ -46,6 +44,12 @@ if not st.session_state.juri_auth["is_logged_in"] and "juri_id" in st.query_para
             "jenis": row_j["jenis_instansi"],
             "instansi": row_j["nama_instansi"],
         }
+
+# --- INISIALISASI SESSION STATE ADMIN GLOBAL ---
+if "admin_logged_in" not in st.session_state:
+    st.session_state.admin_logged_in = False
+if "admin_login_time" not in st.session_state:
+    st.session_state.admin_login_time = 0.0
 
 # ==============================================================================
 # NATIVE ROUTING STREAMLIT

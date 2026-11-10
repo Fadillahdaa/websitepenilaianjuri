@@ -155,17 +155,51 @@ html, body, .stApp, .stApp p, .stApp div, .stApp label, .stApp input,
 
     /* beri ruang atas supaya konten tidak tertutup hamburger */
     [data-testid="stMain"] .block-container,
-    .stApp section.main .block-container { padding-top: 4.2rem !important; }
+    .stApp section.main .block-container { 
+        padding-top: 4.5rem !important; 
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
 
-    /* tombol tutup bawaan di dalam sidebar tidak diperlukan (pakai ✕ kustom) */
+    /* tombol tutup bawaan di dalam sidebar tidak diperlukan */
     section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] { display: none !important; }
 
     /* ruang atas di dalam sidebar agar tidak menabrak tombol ✕ */
     section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"],
     section[data-testid="stSidebar"] [data-testid="stSidebarContent"] > div:last-child { padding-top: 3.4rem !important; }
+
+    /* ================= PENYESUAIAN TATA LETAK KHUSUS HP (TETAP TANPA UBAH WARNA) ================= */
+    /* Ubah kolom sejajar (columns) menjadi tumpukan vertikal agar tidak sempit di HP */
+    [data-testid="stHorizontalBlock"], 
+    [data-testid="column"] {
+        flex-direction: column !important;
+        width: 100% !important;
+        min-width: 100% !important;
+        flex: 1 1 100% !important;
+        gap: 0.5rem !important;
+    }
+
+    /* Perbesar area sentuh tombol di HP agar mudah diklik jari */
+    .stApp .stButton > button {
+        min-height: 46px !important;
+        font-size: 0.95rem !important;
+        padding: 10px 14px !important;
+    }
+
+    /* Padding kartu form di HP lebih rapat agar pas di layar kecil */
+    [data-testid="stForm"]:not([data-testid*="form_login_admin"]) {
+        padding: 20px 16px !important;
+        border-radius: 16px !important;
+    }
+
+    /* Tabel / dataframe agar bisa digeser horizontal jika datanya panjang */
+    [data-testid="stTable"], [data-testid="stDataFrame"] {
+        font-size: 0.82rem !important;
+        overflow-x: auto !important;
+    }
 }
 
-/* Tombol hamburger disembunyikan bila sidebar tidak punya menu (mis. halaman login) */
+/* Tombol hamburger disembunyikan bila sidebar tidak punya menu */
 body:not(:has(section[data-testid="stSidebar"] .stButton)) #custom-hamburger { display: none !important; }
 
 /* ================= SIDEBAR ================= */
@@ -294,15 +328,8 @@ section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: .4rem !i
 @media (max-width: 768px) {
     .brand-header-admin { flex-direction: column; text-align: center; gap: 12px; padding: 16px; }
 }
-@media (max-width: 640px) {
-    [data-testid="stColumn"], [data-testid="column"] {
-        min-width: 100% !important;
-        flex: 1 1 100% !important;
-    }
-}
 
 /* ================= INPUT SELALU PUTIH, TULISAN HITAM (anti dark mode) ================= */
-/* Blok ini sengaja diletakkan PALING BAWAH agar menang dari aturan lain. */
 html body [data-baseweb="input"],
 html body [data-baseweb="input"] > div,
 html body [data-baseweb="base-input"],
@@ -405,7 +432,6 @@ html body [data-baseweb="checkbox"]:has(input:checked) svg path {
     stroke: #ffffff !important;
     color: #ffffff !important;
 }
-/* checkbox terkunci tetap putih (hanya agak pudar) */
 html body [data-baseweb="checkbox"]:has(input:disabled) > div:first-child {
     background-color: #ffffff !important;
 }
@@ -489,16 +515,12 @@ html body [data-baseweb="tab"] { color: #112250 !important; background-color: tr
 _STAGE_DARK = ".stApp { background: linear-gradient(135deg, #0b1736 0%, #112250 50%, #1a3375 100%) !important; }"
 _STAGE_LIGHT = ".stApp { background: %IVORY% !important; color: %NAVY% !important; }"
 
-# Script dijalankan di dokumen induk (halaman Streamlit), cukup sekali per sesi browser.
-# Selain hamburger, script ini memasang <meta name="color-scheme" content="only light">
-# agar browser (termasuk "force dark" di Android) tidak membalik warna halaman.
 _NAV_JS = """
 <script>
 (function () {
     try {
         var p = window.parent;
 
-        // Kunci tema terang di tingkat dokumen
         try {
             var d = p.document;
             var m = d.querySelector('meta[name="color-scheme"]');
@@ -536,7 +558,6 @@ _NAV_JS = """
             });
             bd.addEventListener('click', function () { setOpen(false); });
 
-            // tutup otomatis setelah memilih menu di sidebar
             document.addEventListener('click', function (e) {
                 if (!document.body.classList.contains('nav-open')) { return; }
                 var t = e.target;
@@ -554,7 +575,6 @@ _NAV_JS = """
 
 
 def inject(dark_stage: bool = False) -> None:
-    """Suntikkan CSS + hamburger HP. Panggil sekali di awal setiap render halaman."""
     css = _CSS.replace("%STAGE%", _STAGE_DARK if dark_stage else _STAGE_LIGHT)
     for token, value in {
         "%NAVY_2%": NAVY_2, "%NAVY%": NAVY, "%CHAMPAGNE%": CHAMPAGNE,
@@ -566,10 +586,6 @@ def inject(dark_stage: bool = False) -> None:
 
 
 def sidebar_menu(items, key, divider_before=None):
-    """
-    Menu sidebar bergaya kartu. Panggil di dalam `with st.sidebar:`.
-    Mengembalikan label menu yang sedang aktif.
-    """
     if st.session_state.get(key) not in items:
         st.session_state[key] = items[0]
 
@@ -579,8 +595,8 @@ def sidebar_menu(items, key, divider_before=None):
                         unsafe_allow_html=True)
         aktif = st.session_state[key] == label
         if st.button(label, key=f"{key}_btn_{i}",
-                     type="primary" if aktif else "secondary",
-                     use_container_width=True):
+                    type="primary" if aktif else "secondary",
+                    use_container_width=True):
             st.session_state[key] = label
             st.rerun()
     return st.session_state[key]
