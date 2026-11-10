@@ -2,6 +2,7 @@
 styles.py - CSS terpusat + menu sidebar berbasis tombol (tema Navy-Champagne).
 Sudah termasuk hamburger menu kustom untuk tampilan HP.
 Tampilan DIKUNCI ke tema terang: tidak mengikuti mode gelap browser / device.
+Tampilan HP: konten berada di TENGAH layar (rata tengah).
 """
 import streamlit as st
 import streamlit.components.v1 as components
@@ -153,12 +154,84 @@ html, body, .stApp, .stApp p, .stApp div, .stApp label, .stApp input,
     }
     body.nav-open #nav-backdrop { display: block; }
 
-    /* beri ruang atas supaya konten tidak tertutup hamburger */
+    /* ================= KONTEN UTAMA DI TENGAH (HP) ================= */
+    /* Wadah utama: lebar penuh, ditengahkan, ruang atas untuk hamburger */
+    [data-testid="stMain"],
+    [data-testid="stMain"] > div,
+    [data-testid="stAppViewContainer"] > section.main {
+        width: 100% !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+    }
     [data-testid="stMain"] .block-container,
-    .stApp section.main .block-container { 
-        padding-top: 4.5rem !important; 
+    [data-testid="stMainBlockContainer"],
+    .stApp section.main .block-container {
+        padding-top: 4.5rem !important;
         padding-left: 1rem !important;
         padding-right: 1rem !important;
+        padding-bottom: 2rem !important;
+        width: 100% !important;
+        max-width: 560px !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+    }
+
+    /* Semua elemen di dalam wadah ikut penuh dan ditengahkan */
+    [data-testid="stMain"] [data-testid="stVerticalBlock"] {
+        width: 100% !important;
+        align-items: stretch !important;
+    }
+    [data-testid="stMain"] [data-testid="stElementContainer"],
+    [data-testid="stMain"] .element-container {
+        width: 100% !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+    }
+
+    /* Judul, teks, dan keterangan rata tengah */
+    [data-testid="stMain"] [data-testid="stMarkdownContainer"],
+    [data-testid="stMain"] [data-testid="stMarkdownContainer"] h1,
+    [data-testid="stMain"] [data-testid="stMarkdownContainer"] h2,
+    [data-testid="stMain"] [data-testid="stMarkdownContainer"] h3,
+    [data-testid="stMain"] [data-testid="stMarkdownContainer"] h4,
+    [data-testid="stMain"] [data-testid="stMarkdownContainer"] p,
+    [data-testid="stMain"] [data-testid="stCaptionContainer"],
+    [data-testid="stMain"] [data-testid="stCaptionContainer"] p {
+        text-align: center !important;
+    }
+
+    /* Label isian ikut tengah */
+    [data-testid="stMain"] [data-testid="stWidgetLabel"],
+    [data-testid="stMain"] [data-testid="stWidgetLabel"] p {
+        text-align: center !important;
+        justify-content: center !important;
+    }
+
+    /* Gambar / logo di tengah */
+    [data-testid="stMain"] [data-testid="stImage"],
+    [data-testid="stMain"] [data-testid="stImageContainer"] {
+        display: flex !important;
+        justify-content: center !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+    }
+
+    /* Kartu kustom: isi di tengah */
+    .brand-header-admin,
+    .metric-card,
+    .metric-card-juri,
+    .content-card {
+        text-align: center !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+    }
+
+    /* Tombol di tengah, lebar penuh */
+    [data-testid="stMain"] .stButton,
+    [data-testid="stMain"] [data-testid="stFormSubmitButton"] {
+        display: flex !important;
+        justify-content: center !important;
+        width: 100% !important;
     }
 
     /* tombol tutup bawaan di dalam sidebar tidak diperlukan */
@@ -170,7 +243,7 @@ html, body, .stApp, .stApp p, .stApp div, .stApp label, .stApp input,
 
     /* ================= PENYESUAIAN TATA LETAK KHUSUS HP (TETAP TANPA UBAH WARNA) ================= */
     /* Ubah kolom sejajar (columns) menjadi tumpukan vertikal agar tidak sempit di HP */
-    [data-testid="stHorizontalBlock"], 
+    [data-testid="stHorizontalBlock"],
     [data-testid="column"] {
         flex-direction: column !important;
         width: 100% !important;
@@ -190,6 +263,43 @@ html, body, .stApp, .stApp p, .stApp div, .stApp label, .stApp input,
     [data-testid="stForm"]:not([data-testid*="form_login_admin"]) {
         padding: 20px 16px !important;
         border-radius: 16px !important;
+    }
+
+    /* ===== ANTI OVERFLOW HORIZONTAL (penyebab konten bergeser ke kiri) ===== */
+    html, body, .stApp, [data-testid="stApp"],
+    [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+        width: 100% !important;
+        max-width: 100vw !important;
+        overflow-x: hidden !important;
+    }
+    [data-testid="stMain"] *, [data-testid="stForm"] * {
+        box-sizing: border-box !important;
+    }
+    [data-testid="stMain"] .block-container > *,
+    [data-testid="stMain"] [data-testid="stVerticalBlock"] > *,
+    [data-testid="stMain"] [data-testid="stElementContainer"] > * {
+        max-width: 100% !important;
+    }
+    [data-testid="stHorizontalBlock"] {
+        width: 100% !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+    }
+    [data-testid="stColumn"], [data-testid="column"] {
+        min-width: 0 !important;
+        max-width: 100% !important;
+        width: 100% !important;
+    }
+    [data-testid="stForm"],
+    [data-testid="stVerticalBlockBorderWrapper"],
+    [data-testid="stMain"] [data-baseweb="input"],
+    [data-testid="stMain"] [data-baseweb="select"],
+    [data-testid="stMain"] [data-baseweb="textarea"],
+    .content-card, .metric-card, .metric-card-juri, .brand-header-admin {
+        width: 100% !important;
+        max-width: 100% !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
     }
 
     /* Tabel / dataframe agar bisa digeser horizontal jika datanya panjang */
@@ -326,7 +436,14 @@ section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: .4rem !i
 .content-card { margin-bottom: 20px; }
 
 @media (max-width: 768px) {
-    .brand-header-admin { flex-direction: column; text-align: center; gap: 12px; padding: 16px; }
+    .brand-header-admin {
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        gap: 12px;
+        padding: 16px;
+    }
 }
 
 /* ================= INPUT SELALU PUTIH, TULISAN HITAM (anti dark mode) ================= */
@@ -531,6 +648,12 @@ _NAV_JS = """
             }
             m.setAttribute('content', 'only light');
             d.documentElement.style.colorScheme = 'only light';
+
+            /* Pastikan viewport HP pas dengan lebar layar (konten tidak bergeser ke kiri) */
+            var v = d.querySelector('meta[name="viewport"]');
+            if (v) {
+                v.setAttribute('content', 'width=device-width, initial-scale=1, viewport-fit=cover');
+            }
         } catch (e) {}
 
         if (p.__navInit) { return; }
