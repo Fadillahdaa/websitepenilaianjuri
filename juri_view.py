@@ -285,7 +285,6 @@ def _simpan_favorit(spreadsheet_obj, juri_id, peserta_ids):
     if not spreadsheet_obj:
         return True, "Koneksi ke Google Sheet tidak tersedia."
     try:
-        # get_ws tidak peduli huruf besar/kecil (tab di Sheet bernama "Favorit")
         ws = db_helper.get_ws(spreadsheet_obj, "favorit")
         semua = ws.get_all_values()
         baris_lama = [
@@ -379,6 +378,22 @@ def render_juri_portal():
 
     if "juri_auth" not in st.session_state:
         st.session_state.juri_auth = _auth_kosong()
+
+    # --- PEMULIHAN SESI OTOMATIS DARI URL QUERY PARAMS ---
+    if not st.session_state.juri_auth["is_logged_in"] and "juri_id" in st.query_params:
+        saved_juri_id = st.query_params["juri_id"]
+        df_juri = db_helper.ensure_cols(st.session_state.get("db_juri"), "juri")
+        match_juri = df_juri[df_juri["id_juri"].astype(str) == str(saved_juri_id)]
+        
+        if not match_juri.empty:
+            row_j = match_juri.iloc[0]
+            st.session_state.juri_auth = {
+                "is_logged_in": True,
+                "id_juri": row_j["id_juri"],
+                "nama": row_j["nama_juri"],
+                "jenis": row_j["jenis_instansi"],
+                "instansi": row_j["nama_instansi"],
+            }
 
     styles.inject(dark_stage=not st.session_state.juri_auth["is_logged_in"])
 
@@ -506,7 +521,6 @@ def render_juri_portal():
             """, unsafe_allow_html=True)
 
         with col_form:
-            # Pilihan dropdown diisi oleh admin (sheet "jenis")
             df_jenis = db_helper.ensure_cols(st.session_state.get("db_jenis"), "jenis")
             daftar_jenis = sorted({str(x).strip() for x in df_jenis["nama_jenis"] if str(x).strip()})
             PLACEHOLDER = "-- Pilih Instansi dari Daftar --"
@@ -550,7 +564,6 @@ def render_juri_portal():
                     elif not instansi_nama:
                         st.error("Nama instansi wajib diisi!")
                     else:
-                        # Juri dikenali dari kombinasi nama + instansi asal + nama instansi
                         df_juri = db_helper.ensure_cols(st.session_state.db_juri, "juri")
                         existing = df_juri[
                             (df_juri["nama_juri"].astype(str).str.lower() == nama_final.lower())
@@ -586,6 +599,8 @@ def render_juri_portal():
                             "jenis": jenis_dipilih,
                             "instansi": instansi_nama,
                         }
+                        # Simpan ke query_params agar tahan terhadap refresh/restart cloud
+                        st.query_params["juri_id"] = juri_id_final
                         st.session_state["menu_juri_state"] = MENU_DASHBOARD
                         st.rerun()
 
@@ -626,6 +641,8 @@ def render_juri_portal():
 
             if menu_juri == "🚪 Logout":
                 st.session_state.juri_auth = _auth_kosong()
+                if "juri_id" in st.query_params:
+                    del st.query_params["juri_id"]
                 st.session_state["menu_juri_state"] = MENU_DASHBOARD
                 st.rerun()
 
@@ -644,7 +661,6 @@ def render_juri_portal():
         if conn_err:
             st.error(f"❌ Google Sheet bermasalah: {conn_err}")
 
-        # Popup notifikasi (dibuka sekali, lalu dihapus dari session)
         popup = st.session_state.pop("popup", None)
         if popup:
             dialog_notif(popup["tipe"], popup["judul"], popup["pesan"])
@@ -690,7 +706,6 @@ def render_juri_portal():
                 </div>
             """, unsafe_allow_html=True)
 
-            # ---- Pertanyaan: apakah instansi menerima magang ----
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("#### 🎓 Program Magang / PKL")
 
@@ -751,10 +766,8 @@ def render_juri_portal():
                 for _, row in df_peserta.iterrows():
                     pid = row["id_peserta"]
                     status = "✅ (Sudah Dinilai)" if str(pid) in sudah_dinilai else "⏳ (Belum Dinilai)"
-                    # Hanya nama peserta yang ditampilkan (ID tidak ditampilkan)
                     label_map[pid] = f"{row['nama_peserta']} {status}"
 
-                # Opsi memakai ID (stabil) agar pilihan tidak loncat ke atas setelah menyimpan
                 peserta_id = st.selectbox(
                     "Pilih Peserta:", options=list(label_map.keys()),
                     format_func=lambda x: label_map[x],
@@ -793,7 +806,7 @@ def render_juri_portal():
                         _popup_nilai(peserta_nama, hasil, diperbarui=sudah_pernah)
                         st.rerun()
 
-        # ---------------- PESERTA FAVORIT (WAJIB TEPAT 3, HANYA NAMA) ----------------
+        # ---------------- PESERTA FAVORIT ----------------
         elif menu_juri == "⭐ Peserta Favorit":
             st.markdown(_FAV_CSS, unsafe_allow_html=True)
             st.markdown(f"### ⭐ Pilih {JUMLAH_FAVORIT} Peserta Favorit Anda")
@@ -810,7 +823,6 @@ def render_juri_portal():
                 df_fav = db_helper.ensure_cols(st.session_state.db_favorit, "favorit")
                 fav_saya = df_fav[df_fav["id_juri"].astype(str) == str(juri_id_aktif)]
 
-                # ID hanya dipakai di belakang layar; yang tampil ke juri hanya nama
                 df_unik = df_peserta.drop_duplicates("id_peserta")
                 list_id = df_unik["id_peserta"].tolist()
                 nama_by_id = dict(zip(df_unik["id_peserta"], df_unik["nama_peserta"]))
@@ -819,13 +831,11 @@ def render_juri_portal():
                     p for p in dict.fromkeys(fav_saya["id_peserta"].tolist()) if p in list_id
                 ][:JUMLAH_FAVORIT]
 
-                # Isi awal kotak centang dari pilihan yang sudah tersimpan
                 for pid in list_id:
                     kunci = f"fav_{juri_id_aktif}_{pid}"
                     if kunci not in st.session_state:
                         st.session_state[kunci] = pid in favorit_saat_ini
 
-                # Status pilihan tersimpan
                 if len(favorit_saat_ini) == JUMLAH_FAVORIT:
                     st.success(
                         "✅ Pilihan favorit Anda sudah tersimpan. "
@@ -844,14 +854,12 @@ def render_juri_portal():
                         f"3. Tekan tombol **Simpan Pilihan Favorit** di bagian bawah."
                     )
 
-                # Hitung pilihan saat ini
                 terpilih = [
                     pid for pid in list_id
                     if st.session_state.get(f"fav_{juri_id_aktif}_{pid}", False)
                 ]
                 n = len(terpilih)
 
-                # Penghitung besar
                 if n == JUMLAH_FAVORIT:
                     st.markdown(
                         f"<div style='background:#E8F7EE; border:2px solid #0b7337; border-radius:12px; "
@@ -867,11 +875,9 @@ def render_juri_portal():
                         unsafe_allow_html=True,
                     )
 
-                # Daftar peserta: HANYA NAMA
                 for pid in list_id:
                     kunci = f"fav_{juri_id_aktif}_{pid}"
                     dicentang = st.session_state.get(kunci, False)
-                    # Setelah 3 terpilih, sisa pilihan dikunci agar tidak bisa lebih dari 3
                     terkunci = n >= JUMLAH_FAVORIT and not dicentang
                     with st.container(key=f"favbox_{juri_id_aktif}_{pid}"):
                         st.checkbox(nama_by_id[pid], key=kunci, disabled=terkunci)
@@ -882,7 +888,6 @@ def render_juri_portal():
                         f"Hilangkan centang salah satu jika ingin mengganti."
                     )
 
-                # Ringkasan pilihan
                 if terpilih:
                     with st.container(key="ringkasan_fav"):
                         st.markdown("**Pilihan Anda:**")
@@ -891,7 +896,6 @@ def render_juri_portal():
 
                 st.markdown("<br>", unsafe_allow_html=True)
 
-                # Tombol simpan: aktif hanya jika tepat 3
                 with st.container(key="kirim_fav"):
                     simpan_fav = st.button(
                         "⭐ Simpan Pilihan Favorit",
@@ -935,7 +939,6 @@ def render_juri_portal():
 
                 for no, (_, r) in enumerate(df_pen_saya.iterrows(), start=1):
                     pid = str(r["id_peserta"])
-                    # Jika nama tidak ditemukan, tampilkan teks netral (bukan ID)
                     nama_p = nama_map.get(pid, "(Peserta tidak ditemukan)")
                     with st.container(border=True):
                         c = st.columns(lebar, vertical_alignment="center")
