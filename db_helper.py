@@ -176,11 +176,10 @@ def _hapus_docs(db, docs):
 # ============================ CACHE & SYNC ============================
 @st.cache_data(show_spinner=False, ttl=SHEET_CACHE_TTL)
 def _fetch_all(_db):
-    """Baca semua koleksi dengan aman agar tidak hanging."""
+    """Inisialisasi Firestore dengan aman tanpa error duplikat app."""
     hasil = {}
-    for nama in SCHEMA:
-        try:
-            # Berikan batasan atau ambil stream dengan aman
+    try:
+        for nama in SCHEMA:
             docs = list(_db.collection(nama).stream())
             rows = []
             for d in docs:
@@ -189,16 +188,9 @@ def _fetch_all(_db):
                     data["id"] = d.id
                 rows.append(data)
             hasil[nama] = rows
-        except Exception as e:
-            # Jika koleksi belum ada atau gagal dibaca, fallback ke list kosong
-            print(f"Info: Koleksi {nama} kosong atau belum dibuat di Firestore ({e})")
-            hasil[nama] = []
+    except Exception as e:
+        print(f"ERROR SAAT STREAM FIRESTORE: {e}")
     return hasil
-
-
-def invalidate_cache():
-    _fetch_all.clear()
-
 
 def init_session_db():
     for nama, key in SESSION_KEYS.items():
