@@ -176,17 +176,23 @@ def _hapus_docs(db, docs):
 # ============================ CACHE & SYNC ============================
 @st.cache_data(show_spinner=False, ttl=SHEET_CACHE_TTL)
 def _fetch_all(_db):
-    """Baca semua koleksi; dibagi ke semua juri selama TTL."""
+    """Baca semua koleksi dengan aman agar tidak hanging."""
     hasil = {}
     for nama in SCHEMA:
-        docs = with_retry(lambda n=nama: list(_db.collection(n).stream()))
-        rows = []
-        for d in docs:
-            data = d.to_dict() or {}
-            if nama == "penilaian" and not data.get("id"):
-                data["id"] = d.id
-            rows.append(data)
-        hasil[nama] = rows
+        try:
+            # Berikan batasan atau ambil stream dengan aman
+            docs = list(_db.collection(nama).stream())
+            rows = []
+            for d in docs:
+                data = d.to_dict() or {}
+                if nama == "penilaian" and not data.get("id"):
+                    data["id"] = d.id
+                rows.append(data)
+            hasil[nama] = rows
+        except Exception as e:
+            # Jika koleksi belum ada atau gagal dibaca, fallback ke list kosong
+            print(f"Info: Koleksi {nama} kosong atau belum dibuat di Firestore ({e})")
+            hasil[nama] = []
     return hasil
 
 

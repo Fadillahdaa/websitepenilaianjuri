@@ -13,6 +13,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+db_helper.init_session_db()
+db_client, conn_err = db_helper.auto_connect_and_sync()
+
 # --- SEMBUNYIKAN TOOLBAR / TOMBOL EDIT ---
 hide_streamlit_style = """
     <style>
