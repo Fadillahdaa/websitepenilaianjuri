@@ -2,6 +2,8 @@ import os
 import re
 import json
 import time
+import random
+import threading
 from datetime import datetime, timedelta, timezone
 
 import gspread
@@ -37,7 +39,11 @@ SESSION_KEYS = {
     "favorit": "db_favorit",
 }
 
-SYNC_TTL_DETIK = 120  # jarak minimal antar sync otomatis (hindari rate limit Google)
+# Cache data Sheet yang DIBAGI ke semua juri/sesi (detik).
+# Selama cache masih berlaku, berapa pun jumlah juri, tidak ada request baca ke Google.
+SHEET_CACHE_TTL = 30
+# Jarak minimal sync per sesi (sync dari cache itu gratis, jadi boleh sering).
+SYNC_TTL_DETIK = 20
 
 # ============================ WAKTU INDONESIA (WIB) ============================
 # WIB = UTC+7 dan tidak mengenal DST, jadi offset tetap sudah akurat
@@ -78,6 +84,32 @@ def next_id(df, prefix, col):
     return f"{prefix}-{(max(nums) if nums else 0) + 1:03d}"
 
 
+# ============================ RETRY & LOCK ============================
+def _is_retryable(e):
+    s = str(e)
+    return any(k in s for k in ("429", "Quota exceeded", "500", "502", "503", "504"))
+
+
+def with_retry(fn, *args, tries=5, **kwargs):
+    """Jalankan fn; jika kena rate limit (429) / error server sementara,
+    tunggu bertahap (+ acak) lalu coba lagi."""
+    for i in range(tries):
+        try:
+            return fn(*args, **kwargs)
+        except gspread.exceptions.APIError as e:
+            if _is_retryable(e) and i < tries - 1:
+                time.sleep(min(2 ** i, 16) + random.random())
+                continue
+            raise
+
+
+@st.cache_resource(show_spinner=False)
+def get_write_lock():
+    """Satu lock untuk seluruh server: penulisan ke Sheet dilakukan satu per satu,
+    jadi nomor baris yang sudah dibaca tidak bergeser oleh juri lain."""
+    return threading.RLock()
+
+
 # ============================ KONEKSI ============================
 def _load_credentials_dict():
     """Ambil kredensial dari credentials.json (lokal) atau st.secrets (deploy)."""
@@ -110,6 +142,14 @@ def _get_client_cached(creds_key: str):
     return gspread.authorize(creds)
 
 
+@st.cache_resource(show_spinner=False, ttl=3600)
+def _get_spreadsheet_cached(creds_key: str):
+    """Objek Spreadsheet di-cache 1 jam dan dipakai bersama semua sesi
+    (open_by_key = 1 request, tidak perlu diulang tiap rerun)."""
+    client = _get_client_cached(creds_key)
+    return with_retry(client.open_by_key, SPREADSHEET_ID)
+
+
 def get_gspread_client():
     creds_dict, err = _load_credentials_dict()
     if err:
@@ -122,11 +162,12 @@ def get_gspread_client():
 
 
 def get_connected_spreadsheet():
-    client, err = get_gspread_client()
+    creds_dict, err = _load_credentials_dict()
     if err:
         return None, err
+    key = str(creds_dict.get("private_key_id", "")) + str(creds_dict.get("client_email", ""))
     try:
-        return client.open_by_key(SPREADSHEET_ID), None
+        return _get_spreadsheet_cached(key), None
     except gspread.exceptions.APIError as e:
         return None, (f"APIError: {e}. Pastikan Sheet sudah di-share ke email service account "
                       f"sebagai Editor, dan Google Sheets API + Drive API sudah aktif.")
@@ -135,73 +176,191 @@ def get_connected_spreadsheet():
 
 
 # ============================ WORKSHEET ============================
+@st.cache_resource(show_spinner=False, ttl=600)
+def _ws_map(_spreadsheet):
+    """Daftar worksheet di-cache (tidak memanggil worksheets() berulang)."""
+    return {ws.title.strip().lower(): ws for ws in with_retry(_spreadsheet.worksheets)}
+
+
 def get_ws(spreadsheet, name):
-    """Cari worksheet tanpa peduli huruf besar/kecil."""
-    for ws in spreadsheet.worksheets():
-        if ws.title.strip().lower() == name.strip().lower():
-            return ws
-    raise gspread.WorksheetNotFound(name)
+    """Cari worksheet tanpa peduli huruf besar/kecil (dari cache)."""
+    key = name.strip().lower()
+    ws = _ws_map(spreadsheet).get(key)
+    if ws is None:  # mungkin sheet baru dibuat
+        _ws_map.clear()
+        ws = _ws_map(spreadsheet).get(key)
+    if ws is None:
+        raise gspread.WorksheetNotFound(name)
+    return ws
+
+
+# ============================ CACHE DATA BERSAMA ============================
+@st.cache_data(show_spinner=False, ttl=SHEET_CACHE_TTL)
+def _fetch_all(_spreadsheet):
+    """Ambil SEMUA sheet dengan 1 request saja. Dipakai bersama oleh semua juri."""
+    m = _ws_map(_spreadsheet)
+    names = [n for n in [*SCHEMA, "instansi"] if n in m]
+    ranges = [f"'{m[n].title}'" for n in names]
+    res = with_retry(_spreadsheet.values_batch_get, ranges)
+    return {n: vr.get("values", []) for n, vr in zip(names, res.get("valueRanges", []))}
+
+
+def invalidate_cache():
+    """Panggil setelah menulis ke Sheet agar sync berikutnya mengambil data terbaru."""
+    _fetch_all.clear()
+
+
+# ============================ PENULISAN AMAN (LOCK + RETRY) ============================
+# Semua fungsi mengembalikan (berhasil: bool, pesan_error: str).
+def _no_conn():
+    return False, "Koneksi ke Google Sheet tidak tersedia."
 
 
 def safe_append(spreadsheet, sheet_name, row):
-    """Tambah baris ke sheet dengan mekanisme retry otomatis jika terkena rate limit."""
+    """Tambah satu baris ke sheet."""
     if not spreadsheet:
-        return False, "Koneksi ke Google Sheet tidak tersedia."
-    
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            get_ws(spreadsheet, sheet_name).append_row(row, value_input_option="USER_ENTERED")
-            return True, ""
-        except Exception as e:
-            err_str = str(e)
-            # Jika terkena rate limit (429) atau error kuota, tunggu sebentar lalu coba lagi
-            if "429" in err_str or "Quota exceeded" in err_str:
-                if attempt < max_retries - 1:
-                    time.sleep(2 + attempt) # Jeda bertahap: 2 detik, lalu 3 detik
-                    continue
-            print(f"Gagal append ke sheet {sheet_name} (Percobaan {attempt+1}): {e}")
-            if attempt == max_retries - 1:
-                return False, f"{type(e).__name__}: {e}"
-    
-    return False, "Gagal terhubung ke Google Sheet setelah beberapa kali percobaan."
-
-
-def update_juri_magang(spreadsheet, id_juri, status):
-    """Simpan status terima magang ("Ya"/"Tidak") ke kolom E sheet 'juri'.
-    Return (berhasil, pesan_error)."""
-    if not spreadsheet:
-        return False, "Koneksi ke Google Sheet tidak tersedia."
+        return _no_conn()
     try:
-        ws = get_ws(spreadsheet, "juri")
-        cells = [c for c in ws.findall(str(id_juri), in_column=1) if c.value == str(id_juri)]
-        if not cells:
-            return False, "ID juri tidak ditemukan di Sheet."
-        kolom = SCHEMA["juri"].index("terima_magang") + 1  # = 5 (kolom E)
-        ws.update_cell(cells[0].row, kolom, status)
+        with get_write_lock():
+            ws = get_ws(spreadsheet, sheet_name)
+            with_retry(ws.append_row, row, value_input_option="USER_ENTERED")
+        invalidate_cache()
         return True, ""
     except Exception as e:
-        print(f"Gagal update status magang: {e}")
+        print(f"Gagal append ke sheet {sheet_name}: {e}")
         return False, f"{type(e).__name__}: {e}"
 
 
+def _baris_cocok(ws, nilai, kolom):
+    """Nomor baris (mulai 1) yang isi kolom-nya persis sama dengan nilai. 1 request baca."""
+    isi = with_retry(ws.col_values, kolom)
+    return [i for i, v in enumerate(isi, start=1) if i > 1 and v == str(nilai)]
+
+
+def _hapus_baris_berurutan(ws, nomor_baris):
+    """Hapus banyak baris; baris yang berurutan digabung jadi 1 request. Dari bawah ke atas."""
+    nomor = sorted(set(nomor_baris), reverse=True)
+    i = 0
+    while i < len(nomor):
+        akhir = nomor[i]
+        awal = akhir
+        while i + 1 < len(nomor) and nomor[i + 1] == awal - 1:
+            awal = nomor[i + 1]
+            i += 1
+        if awal == akhir:
+            with_retry(ws.delete_rows, awal)
+        else:
+            with_retry(ws.delete_rows, awal, akhir)
+        i += 1
+
+
+def hapus_baris_by_id(spreadsheet, sheet_name, nilai, kolom=1):
+    """Hapus semua baris yang kolom-nya sama persis dengan nilai (mis. id_peserta)."""
+    if not spreadsheet:
+        return _no_conn()
+    try:
+        with get_write_lock():
+            ws = get_ws(spreadsheet, sheet_name)
+            _hapus_baris_berurutan(ws, _baris_cocok(ws, nilai, kolom))
+        invalidate_cache()
+        return True, ""
+    except Exception as e:
+        print(f"Gagal hapus baris {sheet_name}: {e}")
+        return False, f"{type(e).__name__}: {e}"
+
+
+def ubah_sel_by_id(spreadsheet, sheet_name, id_value, kolom_ubah, nilai_baru, kolom_id=1):
+    """Ubah satu sel pada baris yang ID-nya cocok. Kolom dihitung mulai 1."""
+    if not spreadsheet:
+        return _no_conn()
+    try:
+        with get_write_lock():
+            ws = get_ws(spreadsheet, sheet_name)
+            baris = _baris_cocok(ws, id_value, kolom_id)
+            if not baris:
+                return False, "ID tidak ditemukan di Sheet."
+            with_retry(ws.update_cell, baris[0], kolom_ubah, nilai_baru)
+        invalidate_cache()
+        return True, ""
+    except Exception as e:
+        print(f"Gagal ubah sel {sheet_name}: {e}")
+        return False, f"{type(e).__name__}: {e}"
+
+
+def update_juri_magang(spreadsheet, id_juri, status):
+    """Simpan status terima magang ("Ya"/"Tidak") ke kolom E sheet 'juri'."""
+    kolom = SCHEMA["juri"].index("terima_magang") + 1  # = 5 (kolom E)
+    return ubah_sel_by_id(spreadsheet, "juri", id_juri, kolom, status)
+
+
+def simpan_penilaian_sheet(spreadsheet, juri_id, peserta_id, baris):
+    """Simpan baru / perbarui penilaian satu juri untuk satu peserta."""
+    if not spreadsheet:
+        return _no_conn()
+    try:
+        with get_write_lock():
+            ws = get_ws(spreadsheet, "penilaian")
+            semua = with_retry(ws.get_all_values)
+            baris_lama = [
+                i for i, r in enumerate(semua[1:], start=2)
+                if len(r) > 2 and r[1] == str(juri_id) and r[2] == str(peserta_id)
+            ]
+            if baris_lama:
+                with_retry(ws.update, values=[baris], range_name=f"A{baris_lama[0]}")
+                if len(baris_lama) > 1:
+                    _hapus_baris_berurutan(ws, baris_lama[1:])
+            else:
+                with_retry(ws.append_row, baris, value_input_option="RAW")
+        invalidate_cache()
+        return True, ""
+    except Exception as e:
+        print(f"Gagal simpan penilaian ke Sheet: {e}")
+        return False, f"{type(e).__name__}: {e}"
+
+
+def ganti_favorit_sheet(spreadsheet, juri_id, baris_baru):
+    """Ganti seluruh pilihan favorit satu juri dengan baris_baru."""
+    if not spreadsheet:
+        return _no_conn()
+    try:
+        with get_write_lock():
+            ws = get_ws(spreadsheet, "favorit")
+            semua = with_retry(ws.get_all_values)
+            baris_lama = [
+                i for i, r in enumerate(semua[1:], start=2)
+                if len(r) > 1 and r[1] == str(juri_id)
+            ]
+            if baris_lama:
+                _hapus_baris_berurutan(ws, baris_lama)
+            with_retry(ws.append_rows, baris_baru, value_input_option="RAW")
+        invalidate_cache()
+        return True, ""
+    except Exception as e:
+        print(f"Gagal simpan favorit ke Sheet: {e}")
+        return False, f"{type(e).__name__}: {e}"
+
+
+# ============================ INISIALISASI SHEET ============================
 def ensure_worksheets(spreadsheet):
     """Buat sheet (huruf kecil) yang belum ada & perbaiki header yang tidak sesuai skema."""
     if not spreadsheet:
         return False
     try:
-        existing = {ws.title.strip().lower(): ws for ws in spreadsheet.worksheets()}
-        for nama, header in SCHEMA.items():
-            ws = existing.get(nama)
-            if ws is None:
-                ws = spreadsheet.add_worksheet(title=nama, rows=500, cols=max(10, len(header)))
-                ws.append_row(header)
-                continue
-            row1 = [c.strip() for c in ws.row_values(1)]
-            if row1 != header:
-                # padding kosong menghapus sisa header lama (mis. sel D1 dari skema 4 kolom)
-                sisa = [""] * max(0, len(row1) - len(header))
-                ws.update(values=[header + sisa], range_name="A1")
+        with get_write_lock():
+            existing = dict(_ws_map(spreadsheet))
+            for nama, header in SCHEMA.items():
+                ws = existing.get(nama)
+                if ws is None:
+                    ws = with_retry(spreadsheet.add_worksheet,
+                                    title=nama, rows=500, cols=max(10, len(header)))
+                    with_retry(ws.append_row, header)
+                    continue
+                row1 = [c.strip() for c in with_retry(ws.row_values, 1)]
+                if row1 != header:
+                    # padding kosong menghapus sisa header lama
+                    sisa = [""] * max(0, len(row1) - len(header))
+                    with_retry(ws.update, values=[header + sisa], range_name="A1")
+        _ws_map.clear()
         return True
     except Exception as e:
         print(f"Error ensuring worksheets: {e}")
@@ -231,20 +390,33 @@ def perbaiki_urutan_penilaian(spreadsheet):
     Return jumlah baris yang diperbaiki.
     """
     try:
-        ws = get_ws(spreadsheet, "penilaian")
-        semua = ws.get_all_values()
-        data = []
-        for no, r in enumerate(semua[1:], start=2):
-            r = list(r) + [""] * (10 - len(r))
-            if _angka(r[7]) and ":" in r[8] and _POLA_TANGGAL.search(r[8]):
-                baru = r[:7] + [r[8], r[9], r[7]]
-                data.append({"range": f"A{no}", "values": [baru]})
-        if data:
-            ws.batch_update(data)
+        with get_write_lock():
+            ws = get_ws(spreadsheet, "penilaian")
+            semua = with_retry(ws.get_all_values)
+            data = []
+            for no, r in enumerate(semua[1:], start=2):
+                r = list(r) + [""] * (10 - len(r))
+                if _angka(r[7]) and ":" in r[8] and _POLA_TANGGAL.search(r[8]):
+                    baru = r[:7] + [r[8], r[9], r[7]]
+                    data.append({"range": f"A{no}", "values": [baru]})
+            if data:
+                with_retry(ws.batch_update, data)
         return len(data)
     except Exception as e:
         print(f"Gagal memperbaiki urutan kolom penilaian: {e}")
         return 0
+
+
+@st.cache_resource(show_spinner=False)
+def _init_sheets_once(_spreadsheet):
+    """Dijalankan SEKALI per server (bukan per sesi juri).
+    Jika gagal, exception dilempar sehingga tidak ikut ter-cache dan dicoba lagi nanti."""
+    if not ensure_worksheets(_spreadsheet):
+        raise RuntimeError("ensure_worksheets gagal")
+    perbaiki_urutan_penilaian(_spreadsheet)
+    _ws_map.clear()
+    invalidate_cache()
+    return True
 
 
 # ============================ NAMA ASLI INSTANSI (DATA LAMA) ============================
@@ -253,13 +425,9 @@ def perbaiki_urutan_penilaian(spreadsheet):
 _POLA_KODE = re.compile(r"^(INS|JNS)-\d+$", re.IGNORECASE)
 
 
-def _baca_instansi_lama(existing):
-    """Baca sheet lama 'instansi' -> {KODE: {"nama": ..., "jenis": ...}}."""
-    ws = existing.get("instansi")
+def _peta_instansi_dari_data(data):
+    """Ubah isi sheet lama 'instansi' (list of rows) -> {KODE: {"nama": ..., "jenis": ...}}."""
     peta = {}
-    if ws is None:
-        return peta
-    data = ws.get_all_values()
     if len(data) < 2:
         return peta
     header = [h.strip().lower() for h in data[0]]
@@ -336,18 +504,20 @@ def rapikan_data_juri(spreadsheet):
     if not spreadsheet:
         return 0, "Koneksi ke Google Sheet tidak tersedia."
     try:
-        ws = get_ws(spreadsheet, "juri")
-        semua = ws.get_all_values()
-        data = []
-        for no, r in enumerate(semua[1:], start=2):
-            r = list(r) + [""] * (5 - len(r))
-            j, n = resolve_instansi(r[2], r[3])
-            if _POLA_KODE.match(j) or _POLA_KODE.match(n) or not n:
-                continue  # belum bisa diterjemahkan, biarkan apa adanya
-            if (j, n) != (r[2].strip(), r[3].strip()):
-                data.append({"range": f"C{no}:D{no}", "values": [[j, n]]})
-        if data:
-            ws.batch_update(data)
+        with get_write_lock():
+            ws = get_ws(spreadsheet, "juri")
+            semua = with_retry(ws.get_all_values)
+            data = []
+            for no, r in enumerate(semua[1:], start=2):
+                r = list(r) + [""] * (5 - len(r))
+                j, n = resolve_instansi(r[2], r[3])
+                if _POLA_KODE.match(j) or _POLA_KODE.match(n) or not n:
+                    continue  # belum bisa diterjemahkan, biarkan apa adanya
+                if (j, n) != (r[2].strip(), r[3].strip()):
+                    data.append({"range": f"C{no}:D{no}", "values": [[j, n]]})
+            if data:
+                with_retry(ws.batch_update, data)
+        invalidate_cache()
         return len(data), ""
     except Exception as e:
         print(f"Gagal merapikan data juri: {e}")
@@ -361,28 +531,31 @@ def init_session_db():
             st.session_state[key] = pd.DataFrame(columns=SCHEMA[nama])
 
 
-def sync_data_from_sheets(spreadsheet_obj):
-    """Tarik data dari Sheet ke session state. Return (berhasil, pesan_error)."""
+def _data_ke_df(data, nama):
+    """Ubah list of rows dari Sheet menjadi DataFrame bersih."""
+    if len(data) <= 1:
+        return pd.DataFrame(columns=SCHEMA[nama])
+    header = [h.strip() for h in data[0]]
+    rows = [(list(r) + [""] * len(header))[:len(header)] for r in data[1:]]
+    df = pd.DataFrame(rows, columns=header)
+    df = df.loc[:, [c != "" for c in df.columns]]   # buang kolom tanpa nama
+    df = df.loc[:, ~df.columns.duplicated()]        # buang nama kolom ganda
+    df = df[df.apply(lambda r: any(str(v).strip() for v in r), axis=1)]
+    return df.reset_index(drop=True)
+
+
+def sync_data_from_sheets(spreadsheet_obj, force=False):
+    """Tarik data (dari cache bersama) ke session state. Return (berhasil, pesan_error)."""
     if not spreadsheet_obj:
         return False, "Tidak terhubung."
     try:
-        existing = {ws.title.strip().lower(): ws for ws in spreadsheet_obj.worksheets()}
+        if force:
+            invalidate_cache()
+        raw = _fetch_all(spreadsheet_obj)
         for nama, key in SESSION_KEYS.items():
-            ws = existing.get(nama)
-            if ws is None:
-                continue
-            data = ws.get_all_values()
-            if len(data) > 1:
-                header = [h.strip() for h in data[0]]
-                df = pd.DataFrame(data[1:], columns=header)
-                df = df.loc[:, [c != "" for c in df.columns]]   # buang kolom tanpa nama
-                df = df.loc[:, ~df.columns.duplicated()]        # buang nama kolom ganda
-                df = df[df.apply(lambda r: any(str(v).strip() for v in r), axis=1)]
-                st.session_state[key] = df.reset_index(drop=True)
-            else:
-                st.session_state[key] = pd.DataFrame(columns=SCHEMA[nama])
+            st.session_state[key] = _data_ke_df(raw.get(nama, []), nama)
         try:
-            st.session_state["_peta_instansi_lama"] = _baca_instansi_lama(existing)
+            st.session_state["_peta_instansi_lama"] = _peta_instansi_dari_data(raw.get("instansi", []))
         except Exception as e:
             print(f"Gagal membaca sheet instansi lama: {e}")
         st.session_state["_last_sync"] = time.time()
@@ -402,15 +575,18 @@ def auto_connect_and_sync(force=False):
     if not spreadsheet_obj:
         return None, err
 
-    if not st.session_state.get("_ws_ready"):
-        if ensure_worksheets(spreadsheet_obj):
-            st.session_state["_ws_ready"] = True
-            perbaiki_urutan_penilaian(spreadsheet_obj)
+    try:
+        _init_sheets_once(spreadsheet_obj)
+    except Exception as e:
+        print(f"Init sheets gagal: {e}")
 
     terakhir = st.session_state.get("_last_sync", 0)
     if force or (time.time() - terakhir) > SYNC_TTL_DETIK:
-        ok, serr = sync_data_from_sheets(spreadsheet_obj)
+        ok, serr = sync_data_from_sheets(spreadsheet_obj, force=force)
         if not ok:
+            # Data sesi sebelumnya masih ada -> jangan tampilkan error menakutkan ke juri
+            if st.session_state.get("_last_sync"):
+                return spreadsheet_obj, None
             return spreadsheet_obj, f"Terhubung, tetapi gagal membaca data: {serr}"
     return spreadsheet_obj, None
 
