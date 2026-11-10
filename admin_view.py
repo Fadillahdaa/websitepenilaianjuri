@@ -1,9 +1,7 @@
-import io
+import hmac
 import time
-import base64
 import streamlit as st
 import pandas as pd
-from PIL import Image, ImageOps
 import db_helper
 import styles
 
@@ -22,7 +20,7 @@ _ADMIN_CSS = """
     .stApp {
         background-color: #F5F4F0;
     }
-    
+
     /* Styling Card Putih Utama */
     [data-testid="stForm"] {
         background: #ffffff !important;
@@ -51,7 +49,7 @@ _ADMIN_CSS = """
         margin-top: 15px !important;
         transition: all 0.2s ease-in-out !important;
     }
-    
+
     [data-testid="stForm"] .stButton > button:hover {
         background-color: #1a3375 !important;
         color: #3BF07D !important;
@@ -115,11 +113,29 @@ _KRIT = ["k1", "k2", "k3", "k4"]
 _BOBOT = [0.40, 0.30, 0.20, 0.10]
 
 
+# ============================ LOGIN ADMIN (st.secrets) ============================
+# Isi .streamlit/secrets.toml (atau Secrets di Streamlit Cloud):
+#   [admin]
+#   username = "..."
+#   password = "..."
+def _admin_terkonfigurasi():
+    try:
+        cfg = st.secrets["admin"]
+        return bool(str(cfg["username"])) and bool(str(cfg["password"]))
+    except Exception:
+        return False
+
+
+def _cek_admin(username, password):
+    if not _admin_terkonfigurasi():
+        return False
+    cfg = st.secrets["admin"]
+    ok_user = hmac.compare_digest(str(username).encode(), str(cfg["username"]).encode())
+    ok_pass = hmac.compare_digest(str(password).encode(), str(cfg["password"]).encode())
+    return ok_user and ok_pass
+
+
 # ============================ HELPER ============================
-def _exact_cells(ws, value, col):
-    return [c for c in ws.findall(str(value), in_column=col) if c.value == str(value)]
-
-
 def _show_flash(key):
     flash = st.session_state.pop(key, None)
     if flash:
@@ -141,7 +157,7 @@ def _siapkan_ranking():
 
     for k in _KRIT:
         df_n[k] = pd.to_numeric(df_n[k], errors="coerce") if k in df_n.columns else float("nan")
-    
+
     df_n["rata_juri"] = (df_n[_KRIT] * _BOBOT).sum(axis=1, min_count=len(_KRIT)).round(2)
     df_n = df_n.dropna(subset=["rata_juri"])
     if df_n.empty:
@@ -152,7 +168,7 @@ def _siapkan_ranking():
     df_n = df_n.drop_duplicates(subset=["id_juri", "id_peserta"], keep="last")
 
     kolom_juri = [c for c in ["id_juri", "nama_juri", "jenis_instansi", "nama_instansi"] if c in df_j.columns]
-    df_detail = df_n.merge(df_j[kolom_juri], on="id_juri", how="left")
+    df_detail = df_n.merge(df_j[kolom_juri].drop_duplicates(subset="id_juri"), on="id_juri", how="left")
     for c in ["nama_juri", "jenis_instansi", "nama_instansi"]:
         if c not in df_detail.columns:
             df_detail[c] = "-"
@@ -171,7 +187,7 @@ def _siapkan_ranking():
 
 
 @_dialog("✏️ Edit Peserta")
-def dialog_edit_peserta(id_peserta, spreadsheet_obj):
+def dialog_edit_peserta(id_peserta, db_client):
     df = st.session_state.db_peserta
     cur = df[df["id_peserta"] == id_peserta]
     if cur.empty:
@@ -196,30 +212,20 @@ def dialog_edit_peserta(id_peserta, spreadsheet_obj):
         idx = df.index[df["id_peserta"] == id_peserta][0]
         st.session_state.db_peserta.at[idx, "nama_peserta"] = nama_baru
 
-        gagal, detail = False, ""
-        if spreadsheet_obj:
-            try:
-                ws = db_helper.get_ws(spreadsheet_obj, "peserta")
-                cells = _exact_cells(ws, id_peserta, 1)
-                if cells:
-                    ws.update_cell(cells[0].row, 2, nama_baru)
-                else:
-                    gagal, detail = True, "ID peserta tidak ditemukan di Sheet."
-            except Exception as e:
-                gagal, detail = True, f"{type(e).__name__}: {e}"
-        else:
-            gagal, detail = True, "Koneksi ke Google Sheet tidak tersedia."
+        # Update ke Firestore via db_helper.ubah_sel_by_id
+        ok, serr = db_helper.ubah_sel_by_id(db_client, "peserta", id_peserta, "nama_peserta", nama_baru)
 
         st.session_state["flash_peserta"] = (
-            ("warning", f"Peserta diperbarui di aplikasi, tetapi gagal ke Google Sheet. ({detail})")
-            if gagal else ("success", f"Data peserta **{nama_baru}** berhasil diperbarui.")
+            ("warning", f"Peserta diperbarui di aplikasi, tetapi gagal ke Firestore. ({serr})")
+            if not ok else ("success", f"Data peserta **{nama_baru}** berhasil diperbarui.")
         )
         st.rerun()
 
 
 @_dialog("🗑️ Hapus Peserta")
-def dialog_hapus_peserta(id_peserta, nama, spreadsheet_obj):
+def dialog_hapus_peserta(id_peserta, nama, db_client):
     st.markdown(f"#### Yakin hapus peserta **{nama}**?")
+    st.caption("Nilai dan pilihan favorit untuk peserta ini juga akan ikut terhapus.")
     c1, c2 = st.columns(2)
     with c1:
         ya = st.button("Ya, hapus", key="confirm_yes")
@@ -233,20 +239,17 @@ def dialog_hapus_peserta(id_peserta, nama, spreadsheet_obj):
         df = st.session_state.db_peserta
         st.session_state.db_peserta = df[df["id_peserta"] != id_peserta].reset_index(drop=True)
 
-        gagal, detail = False, ""
-        if spreadsheet_obj:
-            try:
-                ws = db_helper.get_ws(spreadsheet_obj, "peserta")
-                for r in sorted({c.row for c in _exact_cells(ws, id_peserta, 1)}, reverse=True):
-                    ws.delete_rows(r)
-            except Exception as e:
-                gagal, detail = True, f"{type(e).__name__}: {e}"
-        else:
-            gagal, detail = True, "Koneksi ke Google Sheet tidak tersedia."
+        ok, serr = db_helper.hapus_baris_by_id(db_client, "peserta", id_peserta)
+
+        # Bersihkan nilai & favorit milik peserta ini (id_peserta = kolom ke-3 di kedua koleksi)
+        for sheet in ("penilaian", "favorit"):
+            ok2, err2 = db_helper.hapus_baris_by_id(db_client, sheet, id_peserta, kolom=3)
+            if not ok2:
+                ok, serr = False, err2
 
         st.session_state["flash_peserta"] = (
-            ("warning", f"Peserta dihapus dari aplikasi, tetapi gagal menghapus di Google Sheet. ({detail})")
-            if gagal else ("success", f"Peserta **{nama}** berhasil dihapus.")
+            ("warning", f"Peserta dihapus di aplikasi, tetapi gagal membersihkan data di Firestore. ({serr})")
+            if not ok else ("success", f"Peserta **{nama}** berhasil dihapus.")
         )
         st.rerun()
 
@@ -261,7 +264,6 @@ def render_admin_portal():
     if st.session_state.admin_logged_in:
         elapsed_time = time.time() - st.session_state.get("admin_login_time", 0.0)
         if elapsed_time > ADMIN_SESSION_TIMEOUT:
-            # Sesi kedaluwarsa lebih dari 2 jam, paksa logout
             st.session_state.admin_logged_in = False
             st.session_state.admin_login_time = 0.0
             st.warning("⏱️ Sesi login Anda telah berakhir (lebih dari 2 jam). Silakan login kembali.")
@@ -271,9 +273,9 @@ def render_admin_portal():
         styles.inject(dark_stage=True)
         st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
         st.markdown(_HIDE_SIDEBAR_CSS, unsafe_allow_html=True)
-        
+
         st.markdown("<br><br>", unsafe_allow_html=True)
-        
+
         _, col_center, _ = st.columns([1, 1.2, 1])
 
         with col_center:
@@ -287,15 +289,17 @@ def render_admin_portal():
 
                 username_input = st.text_input("Username", placeholder="Masukkan username admin")
                 password_input = st.text_input("Password", type="password", placeholder="Masukkan password admin")
-                
+
                 _, btn_col, _ = st.columns([0.3, 2, 0.3])
                 with btn_col:
-                    btn_login = st.form_submit_button("Masuk Panel Admin ➔", use_container_width=True)
+                    btn_login = st.form_submit_button("Masuk Panel Admin ➔", width="stretch")
 
                 if btn_login:
-                    if username_input == "superadmin" and password_input == "adminsuper*3#12":
+                    if not _admin_terkonfigurasi():
+                        st.error("Kredensial admin belum diatur di st.secrets (bagian [admin]).")
+                    elif _cek_admin(username_input, password_input):
                         st.session_state.admin_logged_in = True
-                        st.session_state.admin_login_time = time.time()  # Catat waktu login saat ini
+                        st.session_state.admin_login_time = time.time()
                         st.success("Login berhasil! Memuat sistem...")
                         st.rerun()
                     else:
@@ -306,7 +310,7 @@ def render_admin_portal():
     styles.inject()
     st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
 
-    spreadsheet_obj, conn_err = db_helper.auto_connect_and_sync()
+    db_client, conn_err = db_helper.auto_connect_and_sync()
     tanggal_format = db_helper.get_current_date_indonesia()
 
     with st.sidebar:
@@ -318,25 +322,25 @@ def render_admin_portal():
             </div>
         """, unsafe_allow_html=True)
 
-        if spreadsheet_obj:
-            st.markdown(f"""
+        if not conn_err:
+            st.markdown("""
                 <div style="margin: 10px 0 16px 0; padding: 10px 12px; background: rgba(59,240,125,0.12); border: 1px solid #3B507D; border-radius: 8px; font-size: 0.75rem; color: #E7E2CE; font-weight: 600; text-align: center;">
-                    🟢 <b>DB Tersambung</b><br>{spreadsheet_obj.title}
+                    🟢 <b>Firebase Tersambung</b>
                 </div>
             """, unsafe_allow_html=True)
         else:
             st.markdown("""
                 <div style="margin: 10px 0 16px 0; padding: 10px 12px; background: rgba(220,53,69,0.15); border: 1px solid #dc3545; border-radius: 8px; font-size: 0.75rem; color: #E7E2CE; font-weight: 600; text-align: center;">
-                    🔴 <b>DB Tidak Tersambung</b>
+                    🔴 <b>Koneksi Gagal</b>
                 </div>
             """, unsafe_allow_html=True)
 
         menu_admin = styles.sidebar_menu(
             ["📊 Dashboard", "📁 Kelola Peserta", "👥 Kelola Instansi",
-             "🏆 Ranking & Nilai", "⭐ Peserta Favorit", "📑 Database Google Sheet", "🚪 Logout Admin"],
+             "🏆 Ranking & Nilai", "⭐ Peserta Favorit", "📑 Database Firestore", "🚪 Logout Admin"],
             key="menu_admin_state",
         )
-        
+
         if menu_admin == "🚪 Logout Admin":
             st.session_state.admin_logged_in = False
             st.session_state.admin_login_time = 0.0
@@ -359,7 +363,7 @@ def render_admin_portal():
     """, unsafe_allow_html=True)
 
     if conn_err:
-        st.error(f"❌ Google Sheet bermasalah: {conn_err}")
+        st.error(f"❌ Firestore bermasalah: {conn_err}")
 
     # ---------------- 1. DASHBOARD ----------------
     if menu_admin == "📊 Dashboard":
@@ -387,7 +391,7 @@ def render_admin_portal():
             top3.columns = ["Peringkat", "Nama Peserta", "Nilai Akhir"]
             st.dataframe(
                 top3.style.format({"Nilai Akhir": "{:.2f}"}),
-                use_container_width=True, hide_index=True,
+                width="stretch", hide_index=True,
             )
         else:
             st.info("Belum ada data penilaian.")
@@ -411,7 +415,7 @@ def render_admin_portal():
             top3_fav = fav_counts.head(3)[["peringkat", "nama_peserta", "total_vote"]].copy()
             top3_fav["peringkat"] = top3_fav["peringkat"].map(lambda p: medali.get(p, f"#{p}"))
             top3_fav.columns = ["Peringkat", "Nama Peserta", "Total Voting"]
-            st.dataframe(top3_fav, use_container_width=True, hide_index=True)
+            st.dataframe(top3_fav, width="stretch", hide_index=True)
         else:
             st.info("Belum ada vote favorit.")
 
@@ -440,11 +444,11 @@ def render_admin_portal():
                         st.session_state.db_peserta = pd.concat([df_p, pd.DataFrame([new_row])], ignore_index=True)
 
                         ok, serr = db_helper.safe_append(
-                            spreadsheet_obj, "peserta", [new_id, p_nama.strip(), "Belum Lengkap"]
+                            db_client, "peserta", [new_id, p_nama.strip(), "Belum Lengkap"]
                         )
                         st.session_state["flash_peserta"] = (
                             ("success", f"Peserta **{p_nama.strip()}** berhasil ditambahkan!") if ok
-                            else ("warning", f"Peserta **{p_nama.strip()}** tersimpan di aplikasi, tetapi gagal menulis ke Google Sheet. ({serr})")
+                            else ("warning", f"Peserta tersimpan di aplikasi, tetapi gagal menulis ke Firestore. ({serr})")
                         )
                         st.rerun()
 
@@ -465,9 +469,9 @@ def render_admin_portal():
                     c[1].markdown(f"**{r['nama_peserta']}**  \n<span style='color:#6B7280; font-size:.78rem;'>{r['id_peserta']}</span>", unsafe_allow_html=True)
                     c[2].write(r.get("status", "-"))
                     if c[3].button("✏️ Edit", key=f"edit_{r['id_peserta']}"):
-                        dialog_edit_peserta(r["id_peserta"], spreadsheet_obj)
+                        dialog_edit_peserta(r["id_peserta"], db_client)
                     if c[4].button("🗑️ Hapus", key=f"del_{r['id_peserta']}"):
-                        dialog_hapus_peserta(r["id_peserta"], r["nama_peserta"], spreadsheet_obj)
+                        dialog_hapus_peserta(r["id_peserta"], r["nama_peserta"], db_client)
 
     # ---------------- 3. KELOLA INSTANSI ----------------
     elif menu_admin == "👥 Kelola Instansi":
@@ -489,10 +493,10 @@ def render_admin_portal():
                         new_id = db_helper.next_id(df_j, "JNS", "id_jenis")
                         new_row = {"id_jenis": new_id, "nama_jenis": bersih}
                         st.session_state.db_jenis = pd.concat([df_j, pd.DataFrame([new_row])], ignore_index=True)
-                        ok, serr = db_helper.safe_append(spreadsheet_obj, "jenis", [new_id, bersih])
+                        ok, serr = db_helper.safe_append(db_client, "jenis", [new_id, bersih])
                         st.session_state["flash_instansi"] = (
                             ("success", f"Pilihan **{bersih}** berhasil ditambahkan!") if ok
-                            else ("warning", f"Tersimpan di aplikasi, tetapi gagal menulis ke Google Sheet. ({serr})")
+                            else ("warning", f"Tersimpan di aplikasi, tetapi gagal menulis ke Firestore. ({serr})")
                         )
                         st.rerun()
 
@@ -512,18 +516,9 @@ def render_admin_portal():
                     c[1].markdown(f"**{r['nama_jenis']}**  \n<span style='color:#6B7280; font-size:.78rem;'>{r['id_jenis']}</span>", unsafe_allow_html=True)
                     if c[2].button("🗑️ Hapus", key=f"del_jns_{r['id_jenis']}"):
                         st.session_state.db_jenis = df_j[df_j["id_jenis"] != r["id_jenis"]].reset_index(drop=True)
-                        gagal = ""
-                        if spreadsheet_obj:
-                            try:
-                                ws = db_helper.get_ws(spreadsheet_obj, "jenis")
-                                for row in sorted({x.row for x in _exact_cells(ws, r["id_jenis"], 1)}, reverse=True):
-                                    ws.delete_rows(row)
-                            except Exception as e:
-                                gagal = f"{type(e).__name__}: {e}"
-                        else:
-                            gagal = "Koneksi ke Google Sheet tidak tersedia."
+                        ok, serr = db_helper.hapus_baris_by_id(db_client, "jenis", r["id_jenis"])
                         st.session_state["flash_instansi"] = (
-                            ("warning", f"Dihapus di aplikasi, gagal di Google Sheet. ({gagal})") if gagal
+                            ("warning", f"Dihapus di aplikasi, gagal di Firestore. ({serr})") if not ok
                             else ("success", f"Pilihan **{r['nama_jenis']}** berhasil dihapus.")
                         )
                         st.rerun()
@@ -541,16 +536,6 @@ def render_admin_portal():
                 f"🎓 Terima magang: **{n_ya}** instansi  ·  Tidak menerima: **{n_tidak}**  ·  Belum diisi: **{n_belum}**"
             )
 
-            if st.button("🧹 Rapikan data lama di Google Sheet", key="rapikan_juri",
-                         help="Mengganti kode lama (INS-001, dst.) di sheet 'juri' dengan nama asli."):
-                jumlah, serr = db_helper.rapikan_data_juri(spreadsheet_obj)
-                st.session_state["flash_instansi"] = (
-                    ("warning", f"Gagal merapikan data: {serr}") if serr
-                    else ("success", f"{jumlah} baris juri berhasil dirapikan di Google Sheet.")
-                )
-                db_helper.auto_connect_and_sync(force=True)
-                st.rerun()
-
             df_tampil = db_helper.tampilkan_nama_juri(df_juri)
             df_tampil["terima_magang"] = (
                 status_magang
@@ -563,7 +548,7 @@ def render_admin_portal():
                     "jenis_instansi": "Instansi Asal", "nama_instansi": "Nama Instansi",
                     "terima_magang": "Terima Magang",
                 }),
-                use_container_width=True, hide_index=True,
+                width="stretch", hide_index=True,
             )
 
     # ---------------- 4. RANKING & NILAI ----------------
@@ -602,7 +587,7 @@ def render_admin_portal():
                     })
                     st.dataframe(
                         tampil.style.format({"Nilai Akhir": "{:.2f}"}),
-                        use_container_width=True, hide_index=True,
+                        width="stretch", hide_index=True,
                     )
 
             belum = st.session_state.db_peserta[~st.session_state.db_peserta["id_peserta"].isin(df_rank["id_peserta"])]
@@ -611,7 +596,7 @@ def render_admin_portal():
 
     # ---------------- 5. PESERTA FAVORIT ----------------
     elif menu_admin == "⭐ Peserta Favorit":
-        st.markdown(f"#### ⭐ Akumulasi Pilihan Peserta Favorit Dewan Juri")
+        st.markdown("#### ⭐ Akumulasi Pilihan Peserta Favorit Dewan Juri")
         st.caption(f"Setiap juri memilih tepat {JUMLAH_FAVORIT} peserta favorit.")
         df_fav = db_helper.ensure_cols(st.session_state.db_favorit, "favorit")
         if not df_fav.empty:
@@ -649,7 +634,7 @@ def render_admin_portal():
             )
             st.dataframe(
                 tampil_rekap,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
                 height=(len(tampil_rekap) + 1) * 35 + 3,
                 column_config={
@@ -677,25 +662,25 @@ def render_admin_portal():
                     "jenis_instansi": "Instansi Asal", "nama_instansi": "Nama Instansi",
                     "nama_peserta": "Peserta Favorit",
                 }),
-                use_container_width=True, hide_index=True,
+                width="stretch", hide_index=True,
             )
         else:
             st.info("Belum ada data voting peserta favorit dari dewan juri.")
 
-    # ---------------- 6. DATABASE GOOGLE SHEET ----------------
-    elif menu_admin == "📑 Database Google Sheet":
-        st.markdown("#### 📑 Lihat Isi Live Database Google Sheets")
-        if st.button("🔄 Refresh Data dari Sheet"):
+    # ---------------- 6. DATABASE FIRESTORE ----------------
+    elif menu_admin == "📑 Database Firestore":
+        st.markdown("#### 📑 Lihat Isi Live Database Firestore")
+        if st.button("🔄 Refresh Data dari Firestore"):
             db_helper.auto_connect_and_sync(force=True)
             st.success("Data berhasil disinkronkan!")
             st.rerun()
 
         tab1, tab2, tab3, tab4, tab5 = st.tabs(["📝 Penilaian", "📁 Peserta", "👥 Juri", "⭐ Favorit", "🏷️ Pilihan Instansi"])
-        with tab1: st.dataframe(st.session_state.db_penilaian, use_container_width=True)
-        with tab2: st.dataframe(st.session_state.db_peserta, use_container_width=True)
-        with tab3: st.dataframe(st.session_state.db_juri, use_container_width=True)
-        with tab4: st.dataframe(st.session_state.db_favorit, use_container_width=True)
-        with tab5: st.dataframe(st.session_state.db_jenis, use_container_width=True)
+        with tab1: st.dataframe(st.session_state.db_penilaian, width="stretch")
+        with tab2: st.dataframe(st.session_state.db_peserta, width="stretch")
+        with tab3: st.dataframe(st.session_state.db_juri, width="stretch")
+        with tab4: st.dataframe(st.session_state.db_favorit, width="stretch")
+        with tab5: st.dataframe(st.session_state.db_jenis, width="stretch")
 
     st.markdown("""
         <div style="text-align: center; margin-top: 40px; padding: 15px; color: #6B7280; font-size: 0.75rem;">

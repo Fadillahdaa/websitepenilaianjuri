@@ -169,7 +169,7 @@ def _input_nilai(prefix, defaults):
             mentah = st.text_input(
                 label,
                 value="" if d is None else str(d),
-                placeholder="60 - 100",
+                placeholder="0 - 100",
                 max_chars=3,
                 key=f"{prefix}_k{i}",
             ).strip()
@@ -224,8 +224,8 @@ def _input_nilai(prefix, defaults):
     return hasil
 
 
-def _simpan_nilai(spreadsheet_obj, juri_id, peserta_id, skor, catatan):
-    """Simpan baru / perbarui penilaian (aplikasi + Sheet). Return dict hasil."""
+def _simpan_nilai(db_client, juri_id, peserta_id, skor, catatan):
+    """Simpan baru / perbarui penilaian (aplikasi + Firestore). Return dict hasil."""
     total = sum(skor)
     rata = _hitung_berbobot(skor)
     ts = db_helper.timestamp_wib()
@@ -237,36 +237,16 @@ def _simpan_nilai(spreadsheet_obj, juri_id, peserta_id, skor, catatan):
     penilaian_id = id_lama or f"PEN-{int(time.time())}-{uuid.uuid4().hex[:4]}"
 
     baris = [penilaian_id, juri_id, peserta_id, *skor, ts, catatan, rata]
-    row_dict = dict(zip(db_helper.SCHEMA["penilaian"], baris))
+    row_dict = {k: str(v) for k, v in zip(db_helper.SCHEMA["penilaian"], baris)}
     st.session_state.db_penilaian = pd.concat(
         [df_pen[~mask_lama], pd.DataFrame([row_dict])], ignore_index=True
     )
 
-    gagal, detail = False, ""
-    if spreadsheet_obj:
-        try:
-            ws = db_helper.get_ws(spreadsheet_obj, "penilaian")
-            semua = ws.get_all_values()
-            baris_lama = [
-                i for i, r in enumerate(semua[1:], start=2)
-                if len(r) > 2 and r[1] == str(juri_id) and r[2] == str(peserta_id)
-            ]
-            if baris_lama:
-                ws.update(values=[baris], range_name=f"A{baris_lama[0]}")
-                for n in sorted(baris_lama[1:], reverse=True):
-                    ws.delete_rows(n)
-            else:
-                ws.append_row(baris, value_input_option="RAW")
-        except Exception as e:
-            gagal, detail = True, f"{type(e).__name__}: {e}"
-            print(f"Gagal simpan penilaian ke Sheet: {detail}")
-    else:
-        gagal, detail = True, "Koneksi ke Google Sheet tidak tersedia."
-
-    return {"total": total, "rata": rata, "waktu": ts, "gagal": gagal, "detail": detail}
+    ok, serr = db_helper.simpan_penilaian_sheet(db_client, juri_id, peserta_id, baris)
+    return {"total": total, "rata": rata, "waktu": ts, "gagal": not ok, "detail": serr}
 
 
-def _simpan_favorit(spreadsheet_obj, juri_id, peserta_ids):
+def _simpan_favorit(db_client, juri_id, peserta_ids):
     """Satu juri = tepat JUMLAH_FAVORIT favorit. Pilihan lama diganti seluruhnya.
     Return (gagal, detail)."""
     peserta_ids = list(dict.fromkeys(peserta_ids))  # buang duplikat, urutan tetap
@@ -278,37 +258,24 @@ def _simpan_favorit(spreadsheet_obj, juri_id, peserta_ids):
     df_fav = df_fav[df_fav["id_juri"].astype(str) != str(juri_id)]
     baris_baru = [[ts, juri_id, pid] for pid in peserta_ids]
     st.session_state.db_favorit = pd.concat(
-        [df_fav, pd.DataFrame([dict(zip(db_helper.SCHEMA["favorit"], b)) for b in baris_baru])],
+        [df_fav, pd.DataFrame([
+            {k: str(v) for k, v in zip(db_helper.SCHEMA["favorit"], b)} for b in baris_baru
+        ])],
         ignore_index=True,
     )
 
-    if not spreadsheet_obj:
-        return True, "Koneksi ke Google Sheet tidak tersedia."
-    try:
-        ws = db_helper.get_ws(spreadsheet_obj, "favorit")
-        semua = ws.get_all_values()
-        baris_lama = [
-            i for i, r in enumerate(semua[1:], start=2)
-            if len(r) > 1 and r[1] == str(juri_id)
-        ]
-        for n in sorted(baris_lama, reverse=True):
-            ws.delete_rows(n)
-        ws.append_rows(baris_baru, value_input_option="RAW")
-        return False, ""
-    except Exception as e:
-        detail = f"{type(e).__name__}: {e}"
-        print(f"Gagal simpan favorit ke Sheet: {detail}")
-        return True, detail
+    ok, serr = db_helper.ganti_favorit_sheet(db_client, juri_id, baris_baru)
+    return (not ok), serr
 
 
-def _simpan_magang(spreadsheet_obj, juri_id, status):
-    """Simpan status terima magang ("Ya"/"Tidak") ke aplikasi + Sheet. Return (gagal, detail)."""
+def _simpan_magang(db_client, juri_id, status):
+    """Simpan status terima magang ("Ya"/"Tidak") ke aplikasi + Firestore. Return (gagal, detail)."""
     df = db_helper.ensure_cols(st.session_state.db_juri, "juri")
     mask = df["id_juri"].astype(str) == str(juri_id)
     df.loc[mask, "terima_magang"] = status
     st.session_state.db_juri = df
 
-    ok, serr = db_helper.update_juri_magang(spreadsheet_obj, juri_id, status)
+    ok, serr = db_helper.update_juri_magang(db_client, juri_id, status)
     return (not ok), serr
 
 
@@ -324,7 +291,7 @@ def _popup_nilai(nama, hasil, diperbarui):
     aksi = "diperbarui" if diperbarui else "disimpan"
     if hasil["gagal"]:
         _popup("warning", "Belum masuk ke database",
-               f"Nilai untuk **{nama}** {aksi} di aplikasi, tetapi **gagal ditulis ke Google Sheet**.\n\n`{hasil['detail']}`")
+               f"Nilai untuk **{nama}** {aksi} di aplikasi, tetapi **gagal ditulis ke database**.\n\n`{hasil['detail']}`")
     else:
         _popup("success", f"Nilai berhasil {aksi}",
                f"Nilai untuk **{nama}** berhasil {aksi}.\n\n"
@@ -346,7 +313,7 @@ def dialog_notif(tipe, judul, pesan):
 
 
 @_dialog("✏️ Edit Nilai")
-def dialog_edit_nilai(peserta_id, peserta_nama, spreadsheet_obj, juri_id):
+def dialog_edit_nilai(peserta_id, peserta_nama, db_client, juri_id):
     st.markdown(_JURI_CSS, unsafe_allow_html=True)
     df_pen = db_helper.ensure_cols(st.session_state.db_penilaian, "penilaian")
     cur = df_pen[(df_pen["id_juri"].astype(str) == str(juri_id)) &
@@ -366,14 +333,14 @@ def dialog_edit_nilai(peserta_id, peserta_nama, spreadsheet_obj, juri_id):
     )
 
     if st.button("💾 Simpan Perubahan", key=f"edit_simpan_{peserta_id}", disabled=skor is None):
-        hasil = _simpan_nilai(spreadsheet_obj, juri_id, peserta_id, skor, catatan.strip())
+        hasil = _simpan_nilai(db_client, juri_id, peserta_id, skor, catatan.strip())
         _popup_nilai(peserta_nama, hasil, diperbarui=True)
         st.rerun()
 
 
 # ============================ HALAMAN JURI ============================
 def render_juri_portal():
-    spreadsheet_obj, conn_err = db_helper.auto_connect_and_sync()
+    db_client, conn_err = db_helper.auto_connect_and_sync()
     tanggal_format = db_helper.get_current_date_indonesia()
 
     if "juri_auth" not in st.session_state:
@@ -384,7 +351,7 @@ def render_juri_portal():
         saved_juri_id = st.query_params["juri_id"]
         df_juri = db_helper.ensure_cols(st.session_state.get("db_juri"), "juri")
         match_juri = df_juri[df_juri["id_juri"].astype(str) == str(saved_juri_id)]
-        
+
         if not match_juri.empty:
             row_j = match_juri.iloc[0]
             st.session_state.juri_auth = {
@@ -455,7 +422,7 @@ def render_juri_portal():
             }
 
             /* Warna Label Input di Dalam Form */
-            [data-testid="stForm"] label, 
+            [data-testid="stForm"] label,
             [data-testid="stForm"] label p {
                 color: #112250 !important;
                 font-weight: 700 !important;
@@ -499,7 +466,7 @@ def render_juri_portal():
         """, unsafe_allow_html=True)
 
         if conn_err:
-            st.error(f"❌ Google Sheet bermasalah: {conn_err}")
+            st.error(f"❌ Database bermasalah: {conn_err}")
 
         col_banner, col_form = st.columns([1.15, 1], gap="large", vertical_alignment="center")
 
@@ -546,7 +513,7 @@ def render_juri_portal():
                 with btn_col:
                     btn_masuk = st.form_submit_button(
                         "Masuk ke Sistem Penilaian",
-                        use_container_width=True,
+                        width="stretch",
                         disabled=not daftar_jenis,
                     )
 
@@ -574,7 +541,9 @@ def render_juri_portal():
                         if not existing.empty:
                             juri_id_final = existing.iloc[0]["id_juri"]
                         else:
-                            juri_id_final = db_helper.next_id(df_juri, "JUR", "id_juri")
+                            # ID acak (bukan nomor urut): beberapa juri yang login bersamaan
+                            # tidak akan pernah mendapat ID yang sama.
+                            juri_id_final = f"JUR-{uuid.uuid4().hex[:8].upper()}"
                             new_row = {
                                 "id_juri": juri_id_final,
                                 "nama_juri": nama_final,
@@ -586,11 +555,11 @@ def render_juri_portal():
                                 [df_juri, pd.DataFrame([new_row])], ignore_index=True
                             )
                             ok, serr = db_helper.safe_append(
-                                spreadsheet_obj, "juri",
+                                db_client, "juri",
                                 [juri_id_final, nama_final, jenis_dipilih, instansi_nama, ""]
                             )
                             if not ok:
-                                st.warning(f"Data juri gagal ditulis ke Google Sheet: {serr}")
+                                st.warning(f"Data juri gagal ditulis ke database: {serr}")
 
                         st.session_state.juri_auth = {
                             "is_logged_in": True,
@@ -659,7 +628,7 @@ def render_juri_portal():
         """, unsafe_allow_html=True)
 
         if conn_err:
-            st.error(f"❌ Google Sheet bermasalah: {conn_err}")
+            st.error(f"❌ Database bermasalah: {conn_err}")
 
         popup = st.session_state.pop("popup", None)
         if popup:
@@ -736,10 +705,10 @@ def render_juri_portal():
                 )
                 if st.button("💾 Simpan Jawaban", key="simpan_magang", disabled=pilih_magang is None):
                     status_baru = OPSI_MAGANG[pilih_magang]
-                    gagal, detail = _simpan_magang(spreadsheet_obj, juri_id_aktif, status_baru)
+                    gagal, detail = _simpan_magang(db_client, juri_id_aktif, status_baru)
                     if gagal:
                         _popup("warning", "Belum masuk ke database",
-                               f"Jawaban tersimpan di aplikasi, tetapi **gagal ditulis ke Google Sheet**.\n\n`{detail}`")
+                               f"Jawaban tersimpan di aplikasi, tetapi **gagal ditulis ke database**.\n\n`{detail}`")
                     else:
                         _popup("success", "Jawaban berhasil disimpan",
                                f"Status magang instansi Anda: **{_teks_magang(status_baru)}**.")
@@ -802,7 +771,7 @@ def render_juri_portal():
                     )
 
                     if st.button("💾 Simpan Nilai ➔", key=f"simpan_nilai_{peserta_id}", disabled=skor is None):
-                        hasil = _simpan_nilai(spreadsheet_obj, juri_id_aktif, peserta_id, skor, catatan.strip())
+                        hasil = _simpan_nilai(db_client, juri_id_aktif, peserta_id, skor, catatan.strip())
                         _popup_nilai(peserta_nama, hasil, diperbarui=sudah_pernah)
                         st.rerun()
 
@@ -901,18 +870,18 @@ def render_juri_portal():
                         "⭐ Simpan Pilihan Favorit",
                         key="simpan_favorit",
                         disabled=(n != JUMLAH_FAVORIT),
-                        use_container_width=True,
+                        width="stretch",
                         type="primary",
                     )
                 if n != JUMLAH_FAVORIT:
                     st.caption(f"Tombol akan aktif setelah Anda memilih tepat {JUMLAH_FAVORIT} peserta.")
 
                 if simpan_fav and n == JUMLAH_FAVORIT:
-                    gagal, detail = _simpan_favorit(spreadsheet_obj, juri_id_aktif, terpilih)
+                    gagal, detail = _simpan_favorit(db_client, juri_id_aktif, terpilih)
                     daftar = "\n".join(f"- {nama_by_id[p]}" for p in terpilih)
                     if gagal:
                         _popup("warning", "Belum masuk ke database",
-                               f"Pilihan favorit tersimpan di aplikasi, tetapi **gagal ditulis ke Google Sheet**.\n\n`{detail}`")
+                               f"Pilihan favorit tersimpan di aplikasi, tetapi **gagal ditulis ke database**.\n\n`{detail}`")
                     else:
                         _popup("success", "Favorit berhasil disimpan",
                                f"{JUMLAH_FAVORIT} peserta favorit Anda:\n\n{daftar}")
@@ -951,7 +920,7 @@ def render_juri_portal():
                             c[1 + i].write(r.get(f"k{i}", "-"))
                         c[6].write(f"**{_hitung_rata(r):.2f}**")
                         if c[7].button("✏️ Edit", key=f"edit_nilai_{pid}"):
-                            dialog_edit_nilai(pid, nama_p, spreadsheet_obj, juri_id_aktif)
+                            dialog_edit_nilai(pid, nama_p, db_client, juri_id_aktif)
 
     st.markdown("""
         <div style="text-align: center; margin-top: 50px; padding: 20px; border-top: 1px solid #E7E2CE; color: #BEB7A7; font-size: 0.8rem;">

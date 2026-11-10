@@ -1,28 +1,19 @@
 import os
 import re
-import json
 import time
+import uuid
 import random
 import threading
 from datetime import datetime, timedelta, timezone
 
-import gspread
 import pandas as pd
 import streamlit as st
-from google.oauth2.service_account import Credentials
+import firebase_admin
+from firebase_admin import credentials, firestore
+from google.api_core import exceptions as gexc
+from google.cloud.firestore_v1.base_query import FieldFilter
 
-# ID Google Spreadsheet
-SPREADSHEET_ID = "1RsQ4RLGVcqghM3LlFVDTu1OIuYokwC6if_CpWrPUrPk"
-
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
-]
-
-# Nama sheet (SEMUA HURUF KECIL) -> header kolom
-# "jenis"  = pilihan dropdown instansi (diisi admin)
-# "juri"   = data juri + instansinya (digabung, tanpa sheet instansi terpisah)
-#            kolom terima_magang berisi "Ya" / "Tidak" / "" (belum diisi)
+# ============================ SKEMA ============================
 SCHEMA = {
     "jenis": ["id_jenis", "nama_jenis"],
     "juri": ["id_juri", "nama_juri", "jenis_instansi", "nama_instansi", "terima_magang"],
@@ -39,15 +30,11 @@ SESSION_KEYS = {
     "favorit": "db_favorit",
 }
 
-# Cache data Sheet yang DIBAGI ke semua juri/sesi (detik).
-# Selama cache masih berlaku, berapa pun jumlah juri, tidak ada request baca ke Google.
+# Cache data yang dibagi ke semua sesi (detik). Firestore menagih per dokumen yang dibaca.
 SHEET_CACHE_TTL = 30
-# Jarak minimal sync per sesi (sync dari cache itu gratis, jadi boleh sering).
 SYNC_TTL_DETIK = 20
 
 # ============================ WAKTU INDONESIA (WIB) ============================
-# WIB = UTC+7 dan tidak mengenal DST, jadi offset tetap sudah akurat
-# (tidak perlu paket tzdata di Windows).
 WIB = timezone(timedelta(hours=7))
 
 
@@ -56,13 +43,68 @@ def now_wib():
 
 
 def timestamp_wib():
-    """Format yang ditulis ke Sheet, contoh: 2026-11-07 17:03:25 (WIB)."""
     return now_wib().strftime("%Y-%m-%d %H:%M:%S")
+
+
+# ============================ RETRY & LOCK ============================
+_RETRYABLE = (gexc.ResourceExhausted, gexc.ServiceUnavailable,
+              gexc.InternalServerError, gexc.DeadlineExceeded, gexc.Aborted)
+
+
+def with_retry(fn, *args, tries=5, **kwargs):
+    for i in range(tries):
+        try:
+            return fn(*args, **kwargs)
+        except _RETRYABLE:
+            if i < tries - 1:
+                time.sleep(min(2 ** i, 16) + random.random())
+                continue
+            raise
+
+
+@st.cache_resource(show_spinner=False)
+def get_write_lock():
+    return threading.RLock()
+
+
+# ============================ KONEKSI FIREBASE ============================
+@st.cache_resource(show_spinner=False)
+def get_firebase_client():
+    """Inisialisasi Firestore sekali untuk semua sesi."""
+    if not firebase_admin._apps:
+        base = os.path.dirname(os.path.abspath(__file__))
+        cred_path = None
+        for nama in ["firebase_credentials.json", "credentials.json", "credential.json"]:
+            for path in [nama, os.path.join(base, nama)]:
+                if os.path.exists(path):
+                    cred_path = path
+                    break
+            if cred_path:
+                break
+
+        if cred_path:
+            firebase_admin.initialize_app(credentials.Certificate(cred_path))
+        else:
+            try:
+                key = "firebase" if "firebase" in st.secrets else "gcp_service_account"
+                creds_dict = dict(st.secrets[key])
+            except Exception as e:
+                raise RuntimeError(f"Kredensial Firebase tidak ditemukan: {e}")
+            creds_dict["private_key"] = creds_dict.get("private_key", "").replace("\\n", "\n")
+            firebase_admin.initialize_app(credentials.Certificate(creds_dict))
+    return firestore.client()
+
+
+def get_connected_spreadsheet():
+    """Nama lama dipertahankan. Return (client, error)."""
+    try:
+        return get_firebase_client(), None
+    except Exception as e:
+        return None, f"{type(e).__name__}: {e}"
 
 
 # ============================ HELPER DATA ============================
 def ensure_cols(df, sheet):
-    """Pastikan df punya semua kolom sesuai SCHEMA[sheet] (aman untuk data lama)."""
     if df is None or not isinstance(df, pd.DataFrame):
         return pd.DataFrame(columns=SCHEMA[sheet])
     df = df.copy()
@@ -72,9 +114,7 @@ def ensure_cols(df, sheet):
     return df
 
 
-# ============================ HELPER ID ============================
 def next_id(df, prefix, col):
-    """Buat ID berikutnya, contoh: PST-001, JNS-002, JUR-003."""
     nums = []
     if df is not None and not df.empty and col in df.columns:
         for v in df[col].tolist():
@@ -84,375 +124,219 @@ def next_id(df, prefix, col):
     return f"{prefix}-{(max(nums) if nums else 0) + 1:03d}"
 
 
-# ============================ RETRY & LOCK ============================
-def _is_retryable(e):
-    s = str(e)
-    return any(k in s for k in ("429", "Quota exceeded", "500", "502", "503", "504"))
+def _row_to_dict(sheet, row):
+    """list (urutan SCHEMA) atau dict -> dict berisi string untuk semua kolom skema."""
+    header = SCHEMA[sheet]
+    if isinstance(row, dict):
+        return {h: ("" if row.get(h) is None else str(row.get(h))) for h in header}
+    row = list(row) + [""] * (len(header) - len(row))
+    return {h: ("" if v is None else str(v)) for h, v in zip(header, row)}
 
 
-def with_retry(fn, *args, tries=5, **kwargs):
-    """Jalankan fn; jika kena rate limit (429) / error server sementara,
-    tunggu bertahap (+ acak) lalu coba lagi."""
-    for i in range(tries):
-        try:
-            return fn(*args, **kwargs)
-        except gspread.exceptions.APIError as e:
-            if _is_retryable(e) and i < tries - 1:
-                time.sleep(min(2 ** i, 16) + random.random())
-                continue
-            raise
+def _doc_id(sheet, d):
+    """ID dokumen deterministik. penilaian/favorit = juri__peserta (sama dengan skrip migrasi)."""
+    if sheet == "jenis":
+        raw = d.get("id_jenis")
+    elif sheet == "juri":
+        raw = d.get("id_juri")
+    elif sheet == "peserta":
+        raw = d.get("id_peserta")
+    else:
+        raw = f"{d.get('id_juri', '')}__{d.get('id_peserta', '')}"
+    raw = str(raw or "").strip().replace("/", "_")
+    return raw if raw and raw != "__" else uuid.uuid4().hex
 
 
-@st.cache_resource(show_spinner=False)
-def get_write_lock():
-    """Satu lock untuk seluruh server: penulisan ke Sheet dilakukan satu per satu,
-    jadi nomor baris yang sudah dibaca tidak bergeser oleh juri lain."""
-    return threading.RLock()
+def _nama_field(sheet, kolom, default=1):
+    """kolom bisa angka (mulai 1, seperti nomor kolom Sheet) atau nama field."""
+    cols = SCHEMA[sheet]
+    if isinstance(kolom, int):
+        idx = kolom if kolom >= 1 else default
+        return cols[idx - 1]
+    return str(kolom)
 
 
-# ============================ KONEKSI ============================
-def _load_credentials_dict():
-    """Ambil kredensial dari credentials.json (lokal) atau st.secrets (deploy)."""
-    base = os.path.dirname(os.path.abspath(__file__))
-    for path in ["credentials.json", "credential.json",
-                 os.path.join(base, "credentials.json"),
-                 os.path.join(base, "credential.json")]:
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f), None
-
-    try:
-        if "gcp_service_account" in st.secrets:
-            return dict(st.secrets["gcp_service_account"]), None
-    except Exception as e:
-        return None, f"Gagal membaca st.secrets: {e}"
-
-    return None, "credentials.json atau st.secrets['gcp_service_account'] tidak ditemukan."
+def _cari_docs(db, sheet, field, nilai):
+    q = db.collection(sheet).where(filter=FieldFilter(field, "==", str(nilai)))
+    return with_retry(lambda: list(q.stream()))
 
 
-@st.cache_resource(show_spinner=False)
-def _get_client_cached(creds_key: str):
-    """Client gspread di-cache. creds_key hanya pemicu cache."""
-    creds_dict, err = _load_credentials_dict()
-    if err:
-        raise RuntimeError(err)
-    pk = creds_dict.get("private_key", "")
-    creds_dict["private_key"] = pk.replace("\\n", "\n")
-    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    return gspread.authorize(creds)
+def _hapus_docs(db, docs):
+    batch, n = db.batch(), 0
+    for d in docs:
+        batch.delete(d.reference)
+        n += 1
+        if n % 400 == 0:
+            with_retry(batch.commit)
+            batch = db.batch()
+    if n % 400 != 0:
+        with_retry(batch.commit)
 
 
-@st.cache_resource(show_spinner=False, ttl=3600)
-def _get_spreadsheet_cached(creds_key: str):
-    """Objek Spreadsheet di-cache 1 jam dan dipakai bersama semua sesi
-    (open_by_key = 1 request, tidak perlu diulang tiap rerun)."""
-    client = _get_client_cached(creds_key)
-    return with_retry(client.open_by_key, SPREADSHEET_ID)
-
-
-def get_gspread_client():
-    creds_dict, err = _load_credentials_dict()
-    if err:
-        return None, err
-    try:
-        key = str(creds_dict.get("private_key_id", "")) + str(creds_dict.get("client_email", ""))
-        return _get_client_cached(key), None
-    except Exception as e:
-        return None, f"{type(e).__name__}: {e}"
-
-
-def get_connected_spreadsheet():
-    creds_dict, err = _load_credentials_dict()
-    if err:
-        return None, err
-    key = str(creds_dict.get("private_key_id", "")) + str(creds_dict.get("client_email", ""))
-    try:
-        return _get_spreadsheet_cached(key), None
-    except gspread.exceptions.APIError as e:
-        return None, (f"APIError: {e}. Pastikan Sheet sudah di-share ke email service account "
-                      f"sebagai Editor, dan Google Sheets API + Drive API sudah aktif.")
-    except Exception as e:
-        return None, f"{type(e).__name__}: {e}"
-
-
-# ============================ WORKSHEET ============================
-@st.cache_resource(show_spinner=False, ttl=600)
-def _ws_map(_spreadsheet):
-    """Daftar worksheet di-cache (tidak memanggil worksheets() berulang)."""
-    return {ws.title.strip().lower(): ws for ws in with_retry(_spreadsheet.worksheets)}
-
-
-def get_ws(spreadsheet, name):
-    """Cari worksheet tanpa peduli huruf besar/kecil (dari cache)."""
-    key = name.strip().lower()
-    ws = _ws_map(spreadsheet).get(key)
-    if ws is None:  # mungkin sheet baru dibuat
-        _ws_map.clear()
-        ws = _ws_map(spreadsheet).get(key)
-    if ws is None:
-        raise gspread.WorksheetNotFound(name)
-    return ws
-
-
-# ============================ CACHE DATA BERSAMA ============================
+# ============================ CACHE & SYNC ============================
 @st.cache_data(show_spinner=False, ttl=SHEET_CACHE_TTL)
-def _fetch_all(_spreadsheet):
-    """Ambil SEMUA sheet dengan 1 request saja. Dipakai bersama oleh semua juri."""
-    m = _ws_map(_spreadsheet)
-    names = [n for n in [*SCHEMA, "instansi"] if n in m]
-    ranges = [f"'{m[n].title}'" for n in names]
-    res = with_retry(_spreadsheet.values_batch_get, ranges)
-    return {n: vr.get("values", []) for n, vr in zip(names, res.get("valueRanges", []))}
+def _fetch_all(_db):
+    """Baca semua koleksi; dibagi ke semua juri selama TTL."""
+    hasil = {}
+    for nama in SCHEMA:
+        docs = with_retry(lambda n=nama: list(_db.collection(n).stream()))
+        rows = []
+        for d in docs:
+            data = d.to_dict() or {}
+            if nama == "penilaian" and not data.get("id"):
+                data["id"] = d.id
+            rows.append(data)
+        hasil[nama] = rows
+    return hasil
 
 
 def invalidate_cache():
-    """Panggil setelah menulis ke Sheet agar sync berikutnya mengambil data terbaru."""
     _fetch_all.clear()
 
 
-# ============================ PENULISAN AMAN (LOCK + RETRY) ============================
-# Semua fungsi mengembalikan (berhasil: bool, pesan_error: str).
+def init_session_db():
+    for nama, key in SESSION_KEYS.items():
+        if key not in st.session_state:
+            st.session_state[key] = pd.DataFrame(columns=SCHEMA[nama])
+
+
+def _data_ke_df(data, nama):
+    if not data:
+        return pd.DataFrame(columns=SCHEMA[nama])
+    df = pd.DataFrame(data)
+    for col in SCHEMA[nama]:
+        if col not in df.columns:
+            df[col] = ""
+    df = df[SCHEMA[nama]].fillna("").astype(str)
+    urut = "waktu_input" if nama in ("penilaian", "favorit") else SCHEMA[nama][0]
+    return df.sort_values(urut, kind="stable").reset_index(drop=True)
+
+
+def sync_data_from_sheets(spreadsheet_obj=None, force=False):
+    """Tarik data (dari cache bersama) ke session_state. Return (berhasil, error)."""
+    try:
+        db = spreadsheet_obj or get_firebase_client()
+        if force:
+            invalidate_cache()
+        raw = _fetch_all(db)
+        for nama, key in SESSION_KEYS.items():
+            st.session_state[key] = _data_ke_df(raw.get(nama, []), nama)
+        st.session_state["_peta_instansi_lama"] = {}
+        st.session_state["_last_sync"] = time.time()
+        return True, ""
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+
+
+def auto_connect_and_sync(force=False):
+    """Hubungkan + sync dibatasi TTL. Return (client, error)."""
+    init_session_db()
+    db, err = get_connected_spreadsheet()
+    if not db:
+        return None, err
+
+    terakhir = st.session_state.get("_last_sync", 0)
+    if force or (time.time() - terakhir) > SYNC_TTL_DETIK:
+        ok, serr = sync_data_from_sheets(db, force=force)
+        if not ok:
+            if st.session_state.get("_last_sync"):
+                return db, None
+            return db, f"Terhubung, tetapi gagal membaca data: {serr}"
+    return db, None
+
+
+# ============================ PENULISAN ============================
 def _no_conn():
-    return False, "Koneksi ke Google Sheet tidak tersedia."
+    return False, "Koneksi ke Firebase tidak tersedia."
 
 
-def safe_append(spreadsheet, sheet_name, row):
-    """Tambah satu baris ke sheet."""
-    if not spreadsheet:
-        return _no_conn()
+def safe_append(db_client, sheet_name, row_dict_or_list):
     try:
+        db = db_client or get_firebase_client()
+        d = _row_to_dict(sheet_name, row_dict_or_list)
         with get_write_lock():
-            ws = get_ws(spreadsheet, sheet_name)
-            with_retry(ws.append_row, row, value_input_option="USER_ENTERED")
+            with_retry(db.collection(sheet_name).document(_doc_id(sheet_name, d)).set, d)
         invalidate_cache()
         return True, ""
     except Exception as e:
-        print(f"Gagal append ke sheet {sheet_name}: {e}")
-        return False, f"{type(e).__name__}: {e}"
+        return False, f"Gagal menambah data: {e}"
 
 
-def _baris_cocok(ws, nilai, kolom):
-    """Nomor baris (mulai 1) yang isi kolom-nya persis sama dengan nilai. 1 request baca."""
-    isi = with_retry(ws.col_values, kolom)
-    return [i for i, v in enumerate(isi, start=1) if i > 1 and v == str(nilai)]
-
-
-def _hapus_baris_berurutan(ws, nomor_baris):
-    """Hapus banyak baris; baris yang berurutan digabung jadi 1 request. Dari bawah ke atas."""
-    nomor = sorted(set(nomor_baris), reverse=True)
-    i = 0
-    while i < len(nomor):
-        akhir = nomor[i]
-        awal = akhir
-        while i + 1 < len(nomor) and nomor[i + 1] == awal - 1:
-            awal = nomor[i + 1]
-            i += 1
-        if awal == akhir:
-            with_retry(ws.delete_rows, awal)
-        else:
-            with_retry(ws.delete_rows, awal, akhir)
-        i += 1
-
-
-def hapus_baris_by_id(spreadsheet, sheet_name, nilai, kolom=1):
-    """Hapus semua baris yang kolom-nya sama persis dengan nilai (mis. id_peserta)."""
-    if not spreadsheet:
-        return _no_conn()
+def hapus_baris_by_id(db_client, sheet_name, nilai_id, kolom=1):
+    """Hapus SEMUA dokumen yang field-nya (kolom ke-N / nama field) sama dengan nilai."""
     try:
+        db = db_client or get_firebase_client()
+        field = _nama_field(sheet_name, kolom)
         with get_write_lock():
-            ws = get_ws(spreadsheet, sheet_name)
-            _hapus_baris_berurutan(ws, _baris_cocok(ws, nilai, kolom))
+            _hapus_docs(db, _cari_docs(db, sheet_name, field, nilai_id))
         invalidate_cache()
         return True, ""
     except Exception as e:
-        print(f"Gagal hapus baris {sheet_name}: {e}")
-        return False, f"{type(e).__name__}: {e}"
+        return False, f"Gagal menghapus data: {e}"
 
 
-def ubah_sel_by_id(spreadsheet, sheet_name, id_value, kolom_ubah, nilai_baru, kolom_id=1):
-    """Ubah satu sel pada baris yang ID-nya cocok. Kolom dihitung mulai 1."""
-    if not spreadsheet:
-        return _no_conn()
+def ubah_sel_by_id(db_client, sheet_name, id_value, kolom_ubah, nilai_baru, kolom_id=1):
     try:
+        db = db_client or get_firebase_client()
+        field_ubah = _nama_field(sheet_name, kolom_ubah)
+        field_id = _nama_field(sheet_name, kolom_id)
         with get_write_lock():
-            ws = get_ws(spreadsheet, sheet_name)
-            baris = _baris_cocok(ws, id_value, kolom_id)
-            if not baris:
-                return False, "ID tidak ditemukan di Sheet."
-            with_retry(ws.update_cell, baris[0], kolom_ubah, nilai_baru)
+            docs = _cari_docs(db, sheet_name, field_id, id_value)
+            if not docs:
+                return False, "ID tidak ditemukan di database."
+            with_retry(docs[0].reference.update, {field_ubah: str(nilai_baru)})
         invalidate_cache()
         return True, ""
     except Exception as e:
-        print(f"Gagal ubah sel {sheet_name}: {e}")
-        return False, f"{type(e).__name__}: {e}"
+        return False, f"Gagal mengubah data: {e}"
 
 
-def update_juri_magang(spreadsheet, id_juri, status):
-    """Simpan status terima magang ("Ya"/"Tidak") ke kolom E sheet 'juri'."""
-    kolom = SCHEMA["juri"].index("terima_magang") + 1  # = 5 (kolom E)
-    return ubah_sel_by_id(spreadsheet, "juri", id_juri, kolom, status)
+def update_juri_magang(db_client, id_juri, status):
+    return ubah_sel_by_id(db_client, "juri", id_juri, "terima_magang", status)
 
 
-def simpan_penilaian_sheet(spreadsheet, juri_id, peserta_id, baris):
-    """Simpan baru / perbarui penilaian satu juri untuk satu peserta."""
-    if not spreadsheet:
-        return _no_conn()
+def simpan_penilaian_sheet(db_client, juri_id, peserta_id, baris_list):
     try:
+        db = db_client or get_firebase_client()
+        d = _row_to_dict("penilaian", baris_list)
+        d["id_juri"], d["id_peserta"] = str(juri_id), str(peserta_id)
+        doc_id = _doc_id("penilaian", d)
+        if not d.get("id"):
+            d["id"] = doc_id
         with get_write_lock():
-            ws = get_ws(spreadsheet, "penilaian")
-            semua = with_retry(ws.get_all_values)
-            baris_lama = [
-                i for i, r in enumerate(semua[1:], start=2)
-                if len(r) > 2 and r[1] == str(juri_id) and r[2] == str(peserta_id)
-            ]
-            if baris_lama:
-                with_retry(ws.update, values=[baris], range_name=f"A{baris_lama[0]}")
-                if len(baris_lama) > 1:
-                    _hapus_baris_berurutan(ws, baris_lama[1:])
-            else:
-                with_retry(ws.append_row, baris, value_input_option="RAW")
+            with_retry(db.collection("penilaian").document(doc_id).set, d)
         invalidate_cache()
         return True, ""
     except Exception as e:
-        print(f"Gagal simpan penilaian ke Sheet: {e}")
-        return False, f"{type(e).__name__}: {e}"
+        return False, f"Gagal menyimpan penilaian: {e}"
 
 
-def ganti_favorit_sheet(spreadsheet, juri_id, baris_baru):
-    """Ganti seluruh pilihan favorit satu juri dengan baris_baru."""
-    if not spreadsheet:
-        return _no_conn()
+def ganti_favorit_sheet(db_client, juri_id, baris_baru_list):
     try:
+        db = db_client or get_firebase_client()
         with get_write_lock():
-            ws = get_ws(spreadsheet, "favorit")
-            semua = with_retry(ws.get_all_values)
-            baris_lama = [
-                i for i, r in enumerate(semua[1:], start=2)
-                if len(r) > 1 and r[1] == str(juri_id)
-            ]
-            if baris_lama:
-                _hapus_baris_berurutan(ws, baris_lama)
-            with_retry(ws.append_rows, baris_baru, value_input_option="RAW")
+            _hapus_docs(db, _cari_docs(db, "favorit", "id_juri", juri_id))
+            batch = db.batch()
+            for r in baris_baru_list:
+                d = _row_to_dict("favorit", r)
+                batch.set(db.collection("favorit").document(_doc_id("favorit", d)), d)
+            with_retry(batch.commit)
         invalidate_cache()
         return True, ""
     except Exception as e:
-        print(f"Gagal simpan favorit ke Sheet: {e}")
-        return False, f"{type(e).__name__}: {e}"
+        return False, f"Gagal menyimpan favorit: {e}"
 
 
-# ============================ INISIALISASI SHEET ============================
-def ensure_worksheets(spreadsheet):
-    """Buat sheet (huruf kecil) yang belum ada & perbaiki header yang tidak sesuai skema."""
-    if not spreadsheet:
-        return False
-    try:
-        with get_write_lock():
-            existing = dict(_ws_map(spreadsheet))
-            for nama, header in SCHEMA.items():
-                ws = existing.get(nama)
-                if ws is None:
-                    ws = with_retry(spreadsheet.add_worksheet,
-                                    title=nama, rows=500, cols=max(10, len(header)))
-                    with_retry(ws.append_row, header)
-                    continue
-                row1 = [c.strip() for c in with_retry(ws.row_values, 1)]
-                if row1 != header:
-                    # padding kosong menghapus sisa header lama
-                    sisa = [""] * max(0, len(row1) - len(header))
-                    with_retry(ws.update, values=[header + sisa], range_name="A1")
-        _ws_map.clear()
-        return True
-    except Exception as e:
-        print(f"Error ensuring worksheets: {e}")
-        return False
-
-
-# ============================ PERBAIKAN DATA LAMA ============================
-_POLA_TANGGAL = re.compile(r"\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}")
-
-
-def _angka(v):
-    v = str(v).strip().replace(",", ".")
-    if not v:
-        return False
-    try:
-        float(v)
-        return True
-    except ValueError:
-        return False
-
-
-def perbaiki_urutan_penilaian(spreadsheet):
-    """
-    Perbaikan satu kali untuk baris lama sheet penilaian:
-    [.., k4, rata_rata, waktu_input, catatan]  ->  [.., k4, waktu_input, catatan, rata_rata]
-    Hanya baris yang berpola urutan lama yang diubah, jadi aman dijalankan berulang.
-    Return jumlah baris yang diperbaiki.
-    """
-    try:
-        with get_write_lock():
-            ws = get_ws(spreadsheet, "penilaian")
-            semua = with_retry(ws.get_all_values)
-            data = []
-            for no, r in enumerate(semua[1:], start=2):
-                r = list(r) + [""] * (10 - len(r))
-                if _angka(r[7]) and ":" in r[8] and _POLA_TANGGAL.search(r[8]):
-                    baru = r[:7] + [r[8], r[9], r[7]]
-                    data.append({"range": f"A{no}", "values": [baru]})
-            if data:
-                with_retry(ws.batch_update, data)
-        return len(data)
-    except Exception as e:
-        print(f"Gagal memperbaiki urutan kolom penilaian: {e}")
-        return 0
-
-
-@st.cache_resource(show_spinner=False)
-def _init_sheets_once(_spreadsheet):
-    """Dijalankan SEKALI per server (bukan per sesi juri).
-    Jika gagal, exception dilempar sehingga tidak ikut ter-cache dan dicoba lagi nanti."""
-    if not ensure_worksheets(_spreadsheet):
-        raise RuntimeError("ensure_worksheets gagal")
-    perbaiki_urutan_penilaian(_spreadsheet)
-    _ws_map.clear()
-    invalidate_cache()
-    return True
-
-
-# ============================ NAMA ASLI INSTANSI (DATA LAMA) ============================
-# Data juri lama menyimpan kode (INS-001 / JNS-001), bukan nama. Kode diterjemahkan
-# memakai sheet lama "instansi" (jika masih ada) dan sheet "jenis".
+# ============================ KOMPATIBILITAS (VIEW LAMA) ============================
 _POLA_KODE = re.compile(r"^(INS|JNS)-\d+$", re.IGNORECASE)
 
 
-def _peta_instansi_dari_data(data):
-    """Ubah isi sheet lama 'instansi' (list of rows) -> {KODE: {"nama": ..., "jenis": ...}}."""
-    peta = {}
-    if len(data) < 2:
-        return peta
-    header = [h.strip().lower() for h in data[0]]
+def ensure_worksheets(spreadsheet=None):
+    return True
 
-    def cari(*kata):
-        for i, h in enumerate(header):
-            if any(k in h for k in kata):
-                return i
-        return None
 
-    i_id = cari("id")
-    i_nama = cari("nama")
-    i_jenis = cari("jenis", "tipe", "kategori")
-    i_id = 0 if i_id is None else i_id
-    i_nama = 1 if i_nama is None else i_nama
-
-    for r in data[1:]:
-        r = list(r) + [""] * (len(header) - len(r))
-        kode = r[i_id].strip()
-        if kode:
-            peta[kode.upper()] = {
-                "nama": r[i_nama].strip(),
-                "jenis": r[i_jenis].strip() if i_jenis is not None else "",
-            }
-    return peta
+def perbaiki_urutan_penilaian(spreadsheet=None):
+    return 0
 
 
 def _peta_jenis():
@@ -462,31 +346,12 @@ def _peta_jenis():
 
 
 def resolve_instansi(jenis, nama):
-    """Ubah (jenis, nama) yang mungkin berisi kode menjadi nama asli. Return (jenis, nama)."""
-    peta_inst = st.session_state.get("_peta_instansi_lama", {})
-    peta_jenis = _peta_jenis()
     jenis = str(jenis or "").strip()
     nama = str(nama or "").strip()
-
-    def ke_jenis(v):
-        return peta_jenis.get(v.upper(), v)
-
-    info = peta_inst.get(jenis.upper())
-    if info:  # kolom jenis_instansi ternyata berisi kode instansi lama (INS-xxx)
-        if not nama:
-            nama = info["nama"]
-        jenis = ke_jenis(info["jenis"]) if info["jenis"] else ""
-    else:
-        jenis = ke_jenis(jenis)
-
-    info2 = peta_inst.get(nama.upper())
-    if info2:
-        nama = info2["nama"]
-    return jenis, nama
+    return _peta_jenis().get(jenis.upper(), jenis), nama
 
 
 def tampilkan_nama_juri(df):
-    """DataFrame juri dengan kolom jenis_instansi & nama_instansi berisi nama asli (untuk tampilan)."""
     df = ensure_cols(df, "juri").copy()
     hasil = [resolve_instansi(j, n) for j, n in zip(df["jenis_instansi"], df["nama_instansi"])]
     df["jenis_instansi"] = [h[0] for h in hasil]
@@ -499,96 +364,23 @@ def tampilkan_nama_juri(df):
     return df
 
 
-def rapikan_data_juri(spreadsheet):
-    """Tulis nama asli instansi ke sheet 'juri' menggantikan kode lama. Return (jumlah_baris, error)."""
-    if not spreadsheet:
-        return 0, "Koneksi ke Google Sheet tidak tersedia."
+def rapikan_data_juri(db_client=None):
+    """Ganti kode jenis (JNS-xxx) pada dokumen juri dengan nama asli. Return (jumlah, error)."""
     try:
-        with get_write_lock():
-            ws = get_ws(spreadsheet, "juri")
-            semua = with_retry(ws.get_all_values)
-            data = []
-            for no, r in enumerate(semua[1:], start=2):
-                r = list(r) + [""] * (5 - len(r))
-                j, n = resolve_instansi(r[2], r[3])
-                if _POLA_KODE.match(j) or _POLA_KODE.match(n) or not n:
-                    continue  # belum bisa diterjemahkan, biarkan apa adanya
-                if (j, n) != (r[2].strip(), r[3].strip()):
-                    data.append({"range": f"C{no}:D{no}", "values": [[j, n]]})
-            if data:
-                with_retry(ws.batch_update, data)
+        db = db_client or get_firebase_client()
+        n = 0
+        for d in with_retry(lambda: list(db.collection("juri").stream())):
+            r = d.to_dict() or {}
+            j, nm = resolve_instansi(r.get("jenis_instansi", ""), r.get("nama_instansi", ""))
+            if _POLA_KODE.match(j) or not nm:
+                continue
+            if (j, nm) != (str(r.get("jenis_instansi", "")).strip(), str(r.get("nama_instansi", "")).strip()):
+                with_retry(d.reference.update, {"jenis_instansi": j, "nama_instansi": nm})
+                n += 1
         invalidate_cache()
-        return len(data), ""
+        return n, ""
     except Exception as e:
-        print(f"Gagal merapikan data juri: {e}")
         return 0, f"{type(e).__name__}: {e}"
-
-
-# ============================ SESSION STATE ============================
-def init_session_db():
-    for nama, key in SESSION_KEYS.items():
-        if key not in st.session_state:
-            st.session_state[key] = pd.DataFrame(columns=SCHEMA[nama])
-
-
-def _data_ke_df(data, nama):
-    """Ubah list of rows dari Sheet menjadi DataFrame bersih."""
-    if len(data) <= 1:
-        return pd.DataFrame(columns=SCHEMA[nama])
-    header = [h.strip() for h in data[0]]
-    rows = [(list(r) + [""] * len(header))[:len(header)] for r in data[1:]]
-    df = pd.DataFrame(rows, columns=header)
-    df = df.loc[:, [c != "" for c in df.columns]]   # buang kolom tanpa nama
-    df = df.loc[:, ~df.columns.duplicated()]        # buang nama kolom ganda
-    df = df[df.apply(lambda r: any(str(v).strip() for v in r), axis=1)]
-    return df.reset_index(drop=True)
-
-
-def sync_data_from_sheets(spreadsheet_obj, force=False):
-    """Tarik data (dari cache bersama) ke session state. Return (berhasil, pesan_error)."""
-    if not spreadsheet_obj:
-        return False, "Tidak terhubung."
-    try:
-        if force:
-            invalidate_cache()
-        raw = _fetch_all(spreadsheet_obj)
-        for nama, key in SESSION_KEYS.items():
-            st.session_state[key] = _data_ke_df(raw.get(nama, []), nama)
-        try:
-            st.session_state["_peta_instansi_lama"] = _peta_instansi_dari_data(raw.get("instansi", []))
-        except Exception as e:
-            print(f"Gagal membaca sheet instansi lama: {e}")
-        st.session_state["_last_sync"] = time.time()
-        return True, ""
-    except Exception as e:
-        print(f"Error sync from sheets: {e}")
-        return False, f"{type(e).__name__}: {e}"
-
-
-def auto_connect_and_sync(force=False):
-    """
-    Hubungkan ke Sheet, pastikan struktur ada, dan sync (dibatasi TTL).
-    Return (spreadsheet_obj, error_message).
-    """
-    init_session_db()
-    spreadsheet_obj, err = get_connected_spreadsheet()
-    if not spreadsheet_obj:
-        return None, err
-
-    try:
-        _init_sheets_once(spreadsheet_obj)
-    except Exception as e:
-        print(f"Init sheets gagal: {e}")
-
-    terakhir = st.session_state.get("_last_sync", 0)
-    if force or (time.time() - terakhir) > SYNC_TTL_DETIK:
-        ok, serr = sync_data_from_sheets(spreadsheet_obj, force=force)
-        if not ok:
-            # Data sesi sebelumnya masih ada -> jangan tampilkan error menakutkan ke juri
-            if st.session_state.get("_last_sync"):
-                return spreadsheet_obj, None
-            return spreadsheet_obj, f"Terhubung, tetapi gagal membaca data: {serr}"
-    return spreadsheet_obj, None
 
 
 def get_current_date_indonesia():
