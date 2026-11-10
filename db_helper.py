@@ -37,7 +37,7 @@ SESSION_KEYS = {
     "favorit": "db_favorit",
 }
 
-SYNC_TTL_DETIK = 15  # jarak minimal antar sync otomatis (hindari rate limit Google)
+SYNC_TTL_DETIK = 120  # jarak minimal antar sync otomatis (hindari rate limit Google)
 
 # ============================ WAKTU INDONESIA (WIB) ============================
 # WIB = UTC+7 dan tidak mengenal DST, jadi offset tetap sudah akurat
@@ -144,15 +144,27 @@ def get_ws(spreadsheet, name):
 
 
 def safe_append(spreadsheet, sheet_name, row):
-    """Tambah baris ke sheet. Return (berhasil, pesan_error)."""
+    """Tambah baris ke sheet dengan mekanisme retry otomatis jika terkena rate limit."""
     if not spreadsheet:
         return False, "Koneksi ke Google Sheet tidak tersedia."
-    try:
-        get_ws(spreadsheet, sheet_name).append_row(row, value_input_option="USER_ENTERED")
-        return True, ""
-    except Exception as e:
-        print(f"Gagal append ke sheet {sheet_name}: {e}")
-        return False, f"{type(e).__name__}: {e}"
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            get_ws(spreadsheet, sheet_name).append_row(row, value_input_option="USER_ENTERED")
+            return True, ""
+        except Exception as e:
+            err_str = str(e)
+            # Jika terkena rate limit (429) atau error kuota, tunggu sebentar lalu coba lagi
+            if "429" in err_str or "Quota exceeded" in err_str:
+                if attempt < max_retries - 1:
+                    time.sleep(2 + attempt) # Jeda bertahap: 2 detik, lalu 3 detik
+                    continue
+            print(f"Gagal append ke sheet {sheet_name} (Percobaan {attempt+1}): {e}")
+            if attempt == max_retries - 1:
+                return False, f"{type(e).__name__}: {e}"
+    
+    return False, "Gagal terhubung ke Google Sheet setelah beberapa kali percobaan."
 
 
 def update_juri_magang(spreadsheet, id_juri, status):
