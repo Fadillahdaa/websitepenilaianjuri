@@ -14,7 +14,10 @@ st.set_page_config(
 )
 
 db_helper.init_session_db()
-db_client, conn_err = db_helper.auto_connect_and_sync()
+
+db_client, conn_err = db_helper.auto_connect_and_sync(target_koleksi="juri")
+db_client, conn_err = db_helper.auto_connect_and_sync(target_koleksi="peserta")
+db_client, conn_err = db_helper.auto_connect_and_sync(target_koleksi="jenis")
 
 # --- SEMBUNYIKAN TOOLBAR / TOMBOL EDIT ---
 hide_streamlit_style = """
