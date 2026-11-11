@@ -60,25 +60,34 @@ def get_write_lock():
 
 @st.cache_resource(show_spinner=False)
 def get_firebase_client():
+    """Inisialisasi Firestore sekali untuk semua sesi."""
     if not firebase_admin._apps:
         base = os.path.dirname(os.path.abspath(__file__))
         cred_path = None
         for nama in ["firebase_credentials.json", "credentials.json", "credential.json"]:
-            path = os.path.join(base, nama)
-            if os.path.exists(path):
-                cred_path = path
+            for path in [nama, os.path.join(base, nama)]:
+                if os.path.exists(path):
+                    cred_path = path
+                    break
+            if cred_path:
                 break
 
         if cred_path:
             firebase_admin.initialize_app(credentials.Certificate(cred_path))
         else:
             try:
-                key = "firebase" if "firebase" in st.secrets else "gcp_service_account"
-                creds_dict = dict(st.secrets[key])
+                # Cek jika menggunakan secret mentah atau format token
+                if "firebase_json" in st.secrets:
+                    import json
+                    creds_dict = json.loads(st.secrets["firebase_json"])
+                else:
+                    key = "firebase" if "firebase" in st.secrets else "gcp_service_account"
+                    creds_dict = dict(st.secrets[key])
+                    creds_dict["private_key"] = creds_dict.get("private_key", "").replace("\\n", "\n")
+                
+                firebase_admin.initialize_app(credentials.Certificate(creds_dict))
             except Exception as e:
-                raise RuntimeError(f"Kredensial Firebase tidak ditemukan: {e}")
-            creds_dict["private_key"] = creds_dict.get("private_key", "").replace("\\n", "\n")
-            firebase_admin.initialize_app(credentials.Certificate(creds_dict))
+                raise RuntimeError(f"Kredensial Firebase tidak ditemukan atau gagal dimuat: {e}")
     return firestore.client()
 
 def get_connected_spreadsheet():
