@@ -65,11 +65,9 @@ def get_firebase_client():
         base = os.path.dirname(os.path.abspath(__file__))
         cred_path = None
         for nama in ["firebase_credentials.json", "credentials.json", "credential.json"]:
-            for path in [nama, os.path.join(base, nama)]:
-                if os.path.exists(path):
-                    cred_path = path
-                    break
-            if cred_path:
+            path = os.path.join(base, nama)
+            if os.path.exists(path):
+                cred_path = path
                 break
 
         if cred_path:
@@ -78,8 +76,15 @@ def get_firebase_client():
             try:
                 key = "firebase" if "firebase" in st.secrets else "gcp_service_account"
                 creds_dict = dict(st.secrets[key])
-                # Menormalkan newline pada private key secara otomatis
-                creds_dict["private_key"] = creds_dict.get("private_key", "").replace("\\n", "\n")
+                
+                # Normalisasi string private_key untuk memperbaiki masalah padding PEM
+                raw_key = creds_dict.get("private_key", "")
+                raw_key = raw_key.strip().replace("\\n", "\n")
+                if not raw_key.startswith("-----BEGIN PRIVATE KEY-----"):
+                    # Bersihkan tanda kutip yang mungkin terbawa di awal/akhir string
+                    raw_key = raw_key.strip('"\'')
+                creds_dict["private_key"] = raw_key
+                
                 firebase_admin.initialize_app(credentials.Certificate(creds_dict))
             except Exception as e:
                 raise RuntimeError(f"Kredensial Firebase tidak ditemukan atau gagal dimuat: {e}")
