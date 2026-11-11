@@ -76,15 +76,10 @@ def get_firebase_client():
             firebase_admin.initialize_app(credentials.Certificate(cred_path))
         else:
             try:
-                # Cek jika menggunakan secret mentah atau format token
-                if "firebase_json" in st.secrets:
-                    import json
-                    creds_dict = json.loads(st.secrets["firebase_json"])
-                else:
-                    key = "firebase" if "firebase" in st.secrets else "gcp_service_account"
-                    creds_dict = dict(st.secrets[key])
-                    creds_dict["private_key"] = creds_dict.get("private_key", "").replace("\\n", "\n")
-                
+                key = "firebase" if "firebase" in st.secrets else "gcp_service_account"
+                creds_dict = dict(st.secrets[key])
+                # Menormalkan newline pada private key secara otomatis
+                creds_dict["private_key"] = creds_dict.get("private_key", "").replace("\\n", "\n")
                 firebase_admin.initialize_app(credentials.Certificate(creds_dict))
             except Exception as e:
                 raise RuntimeError(f"Kredensial Firebase tidak ditemukan atau gagal dimuat: {e}")
